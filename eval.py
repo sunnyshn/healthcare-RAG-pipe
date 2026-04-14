@@ -25,27 +25,50 @@ EVAL_SET = [
 ]
 
 
+def _keyword_hit(hits, keyword: str, k: int) -> int:
+    joined = " ".join(h.text for h in hits[:k]).lower()
+    return int(keyword.lower() in joined)
+
+
 def main() -> None:
     retriever = HybridRetriever.load(INDEX_PATH)
     rows = []
     for item in EVAL_SET:
         hits = retriever.search(item["question"], k=3)
-        joined = " ".join([h.text for h in hits]).lower()
-        keyword_hit = item["expected_keyword"].lower() in joined
+        keyword = item["expected_keyword"]
         rows.append(
             {
                 "question": item["question"],
-                "expected_keyword": item["expected_keyword"],
-                "keyword_hit_at_3": int(keyword_hit),
+                "expected_keyword": keyword,
+                "recall_at_1": _keyword_hit(hits, keyword, k=1),
+                "recall_at_3": _keyword_hit(hits, keyword, k=3),
             }
         )
 
     out = pd.DataFrame(rows)
-    out["mean_keyword_hit"] = out["keyword_hit_at_3"].mean()
+
+    summary = pd.DataFrame(
+        [
+            {
+                "question": "--- MEAN ---",
+                "expected_keyword": "",
+                "recall_at_1": out["recall_at_1"].mean(),
+                "recall_at_3": out["recall_at_3"].mean(),
+            }
+        ]
+    )
+    display = pd.concat([out, summary], ignore_index=True)
+
     EVAL_PATH.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(EVAL_PATH, index=False)
-    print(f"Saved evaluation report to {EVAL_PATH}")
-    print(out)
+
+    print(f"\nEvaluation results saved to {EVAL_PATH}")
+    print(
+        display.to_string(
+            index=False,
+            columns=["question", "expected_keyword", "recall_at_1", "recall_at_3"],
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -1,11 +1,27 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import List
 
 import openai
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).resolve().parents[3] / ".env")
+except ImportError:
+    pass
+
 from healthcare_rag.retriever import SearchResult
+
+_SYSTEM_PROMPT = (
+    "You are a healthcare evidence assistant. "
+    "Answer using only the numbered evidence passages provided. "
+    "If the evidence is weak, conflicting, or absent, state that explicitly. "
+    "Do not provide diagnosis or emergency guidance. "
+    "Keep your answer under 180 words and cite sources as [1], [2], etc."
+)
 
 
 def _build_context(hits: List[SearchResult]) -> str:
@@ -35,19 +51,16 @@ def generate_answer(question: str, hits: List[SearchResult]) -> str:
             "Suggested next step: add an API key to enable grounded generation with citations."
         )
 
-    openai.api_key = api_key
-    prompt = (
-        "You are a healthcare evidence assistant. Use only the provided evidence. "
-        "If evidence is weak or conflicting, say so explicitly. "
-        "Do not provide diagnosis. Keep answer under 180 words and cite [1], [2], etc.\n\n"
-        f"Question:\n{question}\n\n"
-        f"Evidence:\n{context}"
-    )
+    client = openai.OpenAI(api_key=api_key)
+    user_msg = f"Question:\n{question}\n\nEvidence:\n{context}"
 
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4.1-mini",
-        messages=[{"role": "user", "content": prompt}],
+        messages=[
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": user_msg},
+        ],
         temperature=0.1,
     )
-    return response["choices"][0]["message"]["content"].strip()
+    return response.choices[0].message.content.strip()
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -23,6 +23,7 @@ class SearchResult:
     score: float
     source: str
     year: int
+    specialty: str = field(default="")
     score_sparse: Optional[float] = None
     score_dense: Optional[float] = None
 
@@ -53,14 +54,24 @@ class TfidfRetriever:
             payload = pickle.load(f)
         return cls(payload["vectorizer"], payload["matrix"], payload["metadata"])
 
-    def search(self, query: str, k: int = 3) -> List[SearchResult]:
+    def search(
+        self,
+        query: str,
+        k: int = 3,
+        specialty: Optional[str] = None,
+        year_range: Optional[Tuple[int, int]] = None,
+    ) -> List[SearchResult]:
+        allowed = _apply_filters(self.metadata, specialty=specialty, year_range=year_range)
+        sub_meta = self.metadata.loc[allowed].reset_index(drop=True)
+        sub_matrix = self.matrix[allowed]
+
         q_vec = self.vectorizer.transform([query])
-        scores = cosine_similarity(q_vec, self.matrix)[0]
+        scores = cosine_similarity(q_vec, sub_matrix)[0]
         best_idx = np.argsort(scores)[::-1][:k]
 
         results: List[SearchResult] = []
         for idx in best_idx:
-            row = self.metadata.iloc[idx]
+            row = sub_meta.iloc[idx]
             results.append(
                 SearchResult(
                     doc_id=str(row["doc_id"]),
@@ -69,9 +80,25 @@ class TfidfRetriever:
                     score=float(scores[idx]),
                     source=str(row["source"]),
                     year=int(row["year"]),
+                    specialty=str(row.get("specialty", "")),
                 )
             )
         return results
+
+
+def _apply_filters(
+    metadata: pd.DataFrame,
+    specialty: Optional[str] = None,
+    year_range: Optional[Tuple[int, int]] = None,
+) -> pd.Index:
+    """Return the integer positional indices of rows that pass all filters."""
+    mask = pd.Series(True, index=metadata.index)
+    if specialty:
+        mask &= metadata["specialty"].str.lower() == specialty.lower()
+    if year_range is not None:
+        year_min, year_max = year_range
+        mask &= metadata["year"].between(year_min, year_max)
+    return metadata.index[mask]
 
 
 def _rows_to_results(
@@ -92,6 +119,7 @@ def _rows_to_results(
                 score=float(fused_scores[int(idx)]),
                 source=str(row["source"]),
                 year=int(row["year"]),
+                specialty=str(row.get("specialty", "")),
                 score_sparse=float(sparse_scores[int(idx)]),
                 score_dense=float(dense_scores[int(idx)]),
             )
@@ -179,18 +207,32 @@ class HybridRetriever:
             embedding_model_name=payload["embedding_model_name"],
         )
 
-    def search(self, query: str, k: int = 3) -> List[SearchResult]:
-        n = len(self.tfidf.metadata)
+    def search(
+        self,
+        query: str,
+        k: int = 3,
+        specialty: Optional[str] = None,
+        year_range: Optional[Tuple[int, int]] = None,
+    ) -> List[SearchResult]:
+        metadata = self.tfidf.metadata
+        allowed = _apply_filters(metadata, specialty=specialty, year_range=year_range)
+        allowed_pos = np.array([metadata.index.get_loc(i) for i in allowed])
+
+        sub_meta = metadata.loc[allowed].reset_index(drop=True)
+        sub_matrix = self.tfidf.matrix[allowed_pos]
+        sub_embeddings = self.doc_embeddings[allowed_pos]
+        n = len(sub_meta)
+
         q_vec = self.tfidf.vectorizer.transform([query])
-        sparse_scores = cosine_similarity(q_vec, self.tfidf.matrix)[0]
+        sparse_scores_sub = cosine_similarity(q_vec, sub_matrix)[0]
 
         encoder = self._encoder_model()
         q_raw = list(encoder.embed([f"query: {query}"]))[0]
         q_emb = np.asarray(q_raw, dtype=np.float64).reshape(1, -1)
-        dense_scores = cosine_similarity(q_emb, self.doc_embeddings)[0]
+        dense_scores_sub = cosine_similarity(q_emb, sub_embeddings)[0]
 
-        sparse_rank = np.argsort(sparse_scores)[::-1]
-        dense_rank = np.argsort(dense_scores)[::-1]
+        sparse_rank = np.argsort(sparse_scores_sub)[::-1]
+        dense_rank = np.argsort(dense_scores_sub)[::-1]
         rrf = np.zeros(n, dtype=np.float64)
         for rank, idx in enumerate(sparse_rank, start=1):
             rrf[idx] += 1.0 / (RRF_K + rank)
@@ -198,11 +240,22 @@ class HybridRetriever:
             rrf[idx] += 1.0 / (RRF_K + rank)
 
         best_idx = np.argsort(rrf)[::-1][:k]
-        return _rows_to_results(
-            self.tfidf.metadata,
-            best_idx,
-            rrf,
-            sparse_scores,
-            dense_scores,
-        )
+
+        results: List[SearchResult] = []
+        for idx in best_idx:
+            row = sub_meta.iloc[int(idx)]
+            results.append(
+                SearchResult(
+                    doc_id=str(row["doc_id"]),
+                    title=str(row["title"]),
+                    text=str(row["text"]),
+                    score=float(rrf[int(idx)]),
+                    source=str(row["source"]),
+                    year=int(row["year"]),
+                    specialty=str(row.get("specialty", "")),
+                    score_sparse=float(sparse_scores_sub[int(idx)]),
+                    score_dense=float(dense_scores_sub[int(idx)]),
+                )
+            )
+        return results
 

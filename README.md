@@ -2,26 +2,43 @@
 Starter for a healthcare evidence assistant using retrieval + grounded generation.
 
 ## Project layout
-- `data/raw/sample_corpus.jsonl`: starter healthcare corpus (toy data)
+- `data/raw/sample_corpus.jsonl`: healthcare corpus (grows as you fetch from PubMed)
+- `fetch_pubmed.py`: fetch PubMed abstracts and append to corpus
 - `ingest.py`: loads and cleans raw corpus into tabular format
 - `index.py`: builds hybrid retrieval index (`data/index/hybrid_index.pkl`; downloads `BAAI/bge-small-en-v1.5` via FastEmbed on first run)
 - `query.py`: CLI query for Q&A with citations
-- `eval.py`: lightweight retrieval sanity checks
+- `eval.py`: retrieval eval with recall@1 and recall@3
 - `app/streamlit_app.py`: local web demo
 - `src/healthcare_rag/`: package code
 
 ## Quickstart
 ```bash
 python -m venv .venv
+# Linux / WSL:
+source .venv/bin/activate
 # Windows PowerShell:
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-Optional:
+Set up your API keys:
 ```bash
-copy .env.example .env
-# add OPENAI_API_KEY to .env
+cp .env.example .env
+# Edit .env and add your OPENAI_API_KEY (required for LLM answers)
+# Optionally add NCBI_API_KEY for faster PubMed fetching
+```
+
+## Expand the corpus with PubMed
+```bash
+# Fetch abstracts by topic and specialty
+python fetch_pubmed.py --query "type 2 diabetes management" --max 50 --specialty endocrinology
+python fetch_pubmed.py --query "atrial fibrillation anticoagulation" --max 50 --specialty cardiology
+python fetch_pubmed.py --query "major depressive disorder treatment" --max 50 --specialty psychiatry
+python fetch_pubmed.py --query "community acquired pneumonia antibiotics" --max 50 --specialty "infectious disease"
+
+# Rebuild the index after fetching
+python ingest.py
+python index.py
 ```
 
 ## Run pipeline
@@ -29,16 +46,24 @@ copy .env.example .env
 python ingest.py
 python index.py
 python query.py --question "What is first-line treatment for stage 1 hypertension with diabetes?"
+
+# Filter by specialty or year range
+python query.py --question "diabetes drug options" --specialty endocrinology --year_min 2020
+
 python eval.py
 streamlit run app/streamlit_app.py
 ```
 
-# To do:
-- Replace toy corpus with PubMed / guideline documents
-- Add document chunking and metadata filtering by specialty/year
-- Tune hybrid weights / RRF constant or add metadata filters (specialty, year)
-- Add structured evaluation: recall@k, citation faithfulness, abstention rate
+## Ingest with chunking (for long documents)
+```bash
+python ingest.py --chunk --chunk-size 450 --overlap 75
+python index.py
+```
+
+## To do
 - Log experiments and prompts with MLflow
+- Add citation faithfulness and abstention rate to eval
+- Add metadata filtering by MeSH terms
 
 ## Responsibility Note
 This project is for educational decision support and not for diagnosis or emergency use. Use source citations and clinician review for all outputs.

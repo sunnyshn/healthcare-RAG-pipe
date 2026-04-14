@@ -44,3 +44,26 @@ def chunk_text(text: str, chunk_size: int = 450, overlap: int = 75) -> Iterable[
         start = max(0, end - overlap)
     return chunks
 
+
+def expand_chunks(
+    df: pd.DataFrame, chunk_size: int = 450, overlap: int = 75
+) -> pd.DataFrame:
+    """Expand each document row into one row per text chunk.
+
+    The original ``doc_id`` is preserved in a ``parent_doc_id`` column and
+    each chunk receives a unique ``doc_id`` of the form ``{parent_id}_c{n}``.
+    All other metadata columns are carried forward unchanged.
+    """
+    meta_cols = [c for c in df.columns if c != "text"]
+    rows = []
+    for _, record in df.iterrows():
+        chunks = list(chunk_text(record["text"], chunk_size=chunk_size, overlap=overlap))
+        parent_id = str(record["doc_id"])
+        for n, chunk in enumerate(chunks):
+            new_row = {col: record[col] for col in meta_cols}
+            new_row["parent_doc_id"] = parent_id
+            new_row["doc_id"] = f"{parent_id}_c{n}"
+            new_row["text"] = chunk
+            rows.append(new_row)
+    return pd.DataFrame(rows).reset_index(drop=True)
+
