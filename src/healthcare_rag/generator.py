@@ -15,16 +15,39 @@ except ImportError:
 
 from healthcare_rag.retriever import SearchResult
 
+# Marker that signals the model chose to abstain.
+# eval.py imports this to detect abstention programmatically.
+ABSTENTION_MARKER = "INSUFFICIENT EVIDENCE:"
+
+# Dense cosine threshold below which we warn the model that evidence is weak.
+# Set by inspecting the score gap between answerable (~0.83) and off-topic (~0.70)
+# questions against the toy corpus. Re-evaluate after major corpus expansions.
+LOW_EVIDENCE_THRESHOLD = 0.78
+
 _SYSTEM_PROMPT = (
     "You are a healthcare evidence assistant. "
-    "Answer using only the numbered evidence passages provided. "
-    "If the evidence is weak, conflicting, or absent, state that explicitly. "
+    "Answer using ONLY the numbered evidence passages provided — do not use outside knowledge. "
+    "If the passages do not contain enough information to answer the question, you MUST start "
+    f"your response with '{ABSTENTION_MARKER}' and briefly explain what is missing. "
+    "If evidence is present but weak or conflicting, state that explicitly. "
     "Do not provide diagnosis or emergency guidance. "
     "Keep your answer under 180 words and cite sources as [1], [2], etc."
 )
 
 
 def _build_context(hits: List[SearchResult]) -> str:
+    max_dense = max(
+        (h.score_dense for h in hits if h.score_dense is not None),
+        default=None,
+    )
+    warning = ""
+    if max_dense is not None and max_dense < LOW_EVIDENCE_THRESHOLD:
+        warning = (
+            f"[NOTE: Highest semantic similarity to this question is {max_dense:.2f}, "
+            "which is low. If the passages below do not directly address the question, "
+            f"respond with '{ABSTENTION_MARKER}'.]\n\n"
+        )
+
     blocks = []
     for i, h in enumerate(hits, start=1):
         blocks.append(
@@ -32,7 +55,7 @@ def _build_context(hits: List[SearchResult]) -> str:
             f"doc_id: {h.doc_id}\n"
             f"text: {h.text[:1300]}"
         )
-    return "\n\n".join(blocks)
+    return warning + "\n\n".join(blocks)
 
 
 def generate_answer(question: str, hits: List[SearchResult]) -> str:
@@ -40,15 +63,23 @@ def generate_answer(question: str, hits: List[SearchResult]) -> str:
     context = _build_context(hits)
 
     if not api_key:
-        # Offline fallback to keep the project usable without paid APIs.
+        # Offline fallback: abstain when evidence is weak, extract when it is strong.
+        max_dense = max(
+            (h.score_dense for h in hits if h.score_dense is not None),
+            default=0.0,
+        )
+        if max_dense < LOW_EVIDENCE_THRESHOLD:
+            return (
+                f"{ABSTENTION_MARKER} No closely matching evidence found in the "
+                f"corpus for this question (max semantic similarity: {max_dense:.2f}, "
+                f"threshold: {LOW_EVIDENCE_THRESHOLD}). Add relevant documents via "
+                "fetch_pubmed.py and rebuild the index."
+            )
         snippets = "\n".join([f"- {h.title}: {h.text[:240]}..." for h in hits])
         return (
-            "No OPENAI_API_KEY detected, so this is an extractive baseline.\n\n"
-            "Question:\n"
-            f"{question}\n\n"
-            "Evidence snippets:\n"
-            f"{snippets}\n\n"
-            "Suggested next step: add an API key to enable grounded generation with citations."
+            "[Extractive baseline — add OPENAI_API_KEY for grounded generation]\n\n"
+            f"Question: {question}\n\n"
+            f"Evidence snippets:\n{snippets}"
         )
 
     client = openai.OpenAI(api_key=api_key)

@@ -1,4 +1,8 @@
-question,expected_keyword,keyword_hit_at_3,mean_keyword_hit
-first line treatment for stage 1 hypertension with diabetes,ACE,1,1.0
-how to reduce stroke risk in atrial fibrillation,anticoagul,1,1.0
-initial treatment for major depressive disorder adults,SSRI,1,1.0
+question,expected_keyword,recall_at_1,recall_at_3,eval_type,abstained,answer_preview
+first line treatment for stage 1 hypertension with diabetes,ACE,1,1,answerable,,
+how to reduce stroke risk in atrial fibrillation,anticoagul,1,1,answerable,,
+initial treatment for major depressive disorder adults,SSRI,1,1,answerable,,
+What is the recommended chemotherapy regimen for acute myeloid leukemia?,,,,unanswerable,1,INSUFFICIENT EVIDENCE: No closely matching evidence found in the corpus for this question (max semantic similarity: 0.70
+How should a pediatric asthma exacerbation be managed in the emergency department?,,,,unanswerable,1,INSUFFICIENT EVIDENCE: No closely matching evidence found in the corpus for this question (max semantic similarity: 0.73
+What are the first-line treatments for Alzheimer's disease?,,,,unanswerable,1,INSUFFICIENT EVIDENCE: No closely matching evidence found in the corpus for this question (max semantic similarity: 0.74
+What surgical options exist for lumbar spinal stenosis?,,,,unanswerable,1,INSUFFICIENT EVIDENCE: No closely matching evidence found in the corpus for this question (max semantic similarity: 0.67
