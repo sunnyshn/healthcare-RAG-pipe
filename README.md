@@ -60,6 +60,24 @@ python ingest.py --chunk --chunk-size 450 --overlap 75
 python index.py
 ```
 
+## Docker
+Run the entire app in a container with no local setup required:
+```bash
+cp .env.example .env   # add your OPENAI_API_KEY
+docker compose up --build
+```
+Open `http://localhost:8501` in your browser. The corpus and index are persisted in `data/` via a volume mount, so they survive container restarts.
+
+To run only the tests inside Docker:
+```bash
+docker compose run --rm app python -m pytest tests/ -v
+```
+
+## Tests
+```bash
+python -m pytest tests/ -v
+```
+
 ## To do
 - Log experiments and prompts with MLflow
 - Add citation faithfulness and abstention rate to eval
