@@ -3,13 +3,14 @@ Starter for a healthcare evidence assistant using retrieval + grounded generatio
 
 ## Project layout
 - `data/raw/sample_corpus.jsonl`: healthcare corpus (grows as you fetch from PubMed)
-- `fetch_pubmed.py`: fetch PubMed abstracts and append to corpus
-- `ingest.py`: loads and cleans raw corpus into tabular format
-- `index.py`: builds hybrid retrieval index (`data/index/hybrid_index.pkl`; downloads `BAAI/bge-small-en-v1.5` via FastEmbed on first run)
-- `query.py`: CLI query for Q&A with citations
-- `eval.py`: retrieval eval with recall@1 and recall@3
+- `scripts/fetch_pubmed.py`: fetch PubMed abstracts and append to corpus
+- `scripts/ingest.py`: loads and cleans raw corpus into tabular format
+- `scripts/index.py`: builds hybrid retrieval index (`data/index/hybrid_index.pkl`; downloads `BAAI/bge-small-en-v1.5` via FastEmbed on first run)
+- `scripts/query.py`: CLI query for Q&A with citations
+- `scripts/eval.py`: retrieval eval with recall@1 and recall@3
 - `app/streamlit_app.py`: local web demo
 - `src/healthcare_rag/`: package code
+- `tests/`: unit tests (pytest)
 
 ## Quickstart
 ```bash
@@ -31,33 +32,33 @@ cp .env.example .env
 ## Expand the corpus with PubMed
 ```bash
 # Fetch abstracts by topic and specialty
-python fetch_pubmed.py --query "type 2 diabetes management" --max 50 --specialty endocrinology
-python fetch_pubmed.py --query "atrial fibrillation anticoagulation" --max 50 --specialty cardiology
-python fetch_pubmed.py --query "major depressive disorder treatment" --max 50 --specialty psychiatry
-python fetch_pubmed.py --query "community acquired pneumonia antibiotics" --max 50 --specialty "infectious disease"
+python scripts/fetch_pubmed.py --query "type 2 diabetes management" --max 50 --specialty endocrinology
+python scripts/fetch_pubmed.py --query "atrial fibrillation anticoagulation" --max 50 --specialty cardiology
+python scripts/fetch_pubmed.py --query "major depressive disorder treatment" --max 50 --specialty psychiatry
+python scripts/fetch_pubmed.py --query "community acquired pneumonia antibiotics" --max 50 --specialty "infectious disease"
 
 # Rebuild the index after fetching
-python ingest.py
-python index.py
+python scripts/ingest.py
+python scripts/index.py
 ```
 
 ## Run pipeline
 ```bash
-python ingest.py
-python index.py
-python query.py --question "What is first-line treatment for stage 1 hypertension with diabetes?"
+python scripts/ingest.py
+python scripts/index.py
+python scripts/query.py --question "What is first-line treatment for stage 1 hypertension with diabetes?"
 
 # Filter by specialty or year range
-python query.py --question "diabetes drug options" --specialty endocrinology --year_min 2020
+python scripts/query.py --question "diabetes drug options" --specialty endocrinology --year_min 2020
 
-python eval.py
+python scripts/eval.py
 streamlit run app/streamlit_app.py
 ```
 
 ## Ingest with chunking (for long documents)
 ```bash
-python ingest.py --chunk --chunk-size 450 --overlap 75
-python index.py
+python scripts/ingest.py --chunk --chunk-size 450 --overlap 75
+python scripts/index.py
 ```
 
 ## Docker

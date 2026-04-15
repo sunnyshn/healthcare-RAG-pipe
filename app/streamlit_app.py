@@ -7,7 +7,7 @@ import streamlit as st
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 from healthcare_rag.config import INDEX_PATH, PROCESSED_PATH, RAW_PATH
 from healthcare_rag.data_io import normalize_documents, read_jsonl

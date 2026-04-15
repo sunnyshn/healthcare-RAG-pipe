@@ -193,7 +193,7 @@ class HybridRetriever:
             payload = pickle.load(f)
         if payload.get("kind") != "hybrid":
             raise ValueError(
-                "Index file is not a hybrid index. Re-run `python index.py` to rebuild."
+                "Index file is not a hybrid index. Re-run `python scripts/index.py` to rebuild."
             )
         tf = payload["tfidf"]
         tfidf = TfidfRetriever(

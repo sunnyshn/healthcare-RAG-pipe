@@ -73,7 +73,7 @@ def generate_answer(question: str, hits: List[SearchResult]) -> str:
                 f"{ABSTENTION_MARKER} No closely matching evidence found in the "
                 f"corpus for this question (max semantic similarity: {max_dense:.2f}, "
                 f"threshold: {LOW_EVIDENCE_THRESHOLD}). Add relevant documents via "
-                "fetch_pubmed.py and rebuild the index."
+                "scripts/fetch_pubmed.py and rebuild the index."
             )
         snippets = "\n".join([f"- {h.title}: {h.text[:240]}..." for h in hits])
         return (
