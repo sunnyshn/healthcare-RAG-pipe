@@ -1,0 +1,5 @@
+# Development / evaluation dependencies (not needed to run the app).
+# Installs everything in requirements.txt plus testing + experiment tracking.
+-r requirements.txt
+pytest>=7.0,<9
+mlflow>=2.9,<3

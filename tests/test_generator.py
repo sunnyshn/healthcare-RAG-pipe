@@ -96,7 +96,7 @@ class TestGenerateAnswerOffline:
         hits = [_make_hit(score_dense=LOW_EVIDENCE_THRESHOLD + 0.05)]
         answer = generate_answer("relevant question", hits)
         assert not answer.upper().startswith(ABSTENTION_MARKER.upper())
-        assert "Evidence snippets" in answer or "baseline" in answer.lower()
+        assert "Top evidence" in answer
 
     def test_abstention_mentions_threshold(self):
         hits = [_make_hit(score_dense=0.50)]

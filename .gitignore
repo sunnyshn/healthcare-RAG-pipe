@@ -12,5 +12,8 @@ __pycache__/
 data/processed/
 data/index/
 
+# MLflow experiment runs
+mlruns/
+
 # Streamlit (keep config.toml tracked; ignore local secrets)
 .streamlit/secrets.toml

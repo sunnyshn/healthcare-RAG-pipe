@@ -109,15 +109,50 @@ docker compose up --build
 ```
 Open `http://localhost:8501` in your browser. The corpus and index are persisted in `data/` via a volume mount, so they survive container restarts.
 
-To run only the tests inside Docker:
+To run the tests inside Docker (installs dev deps into the container first):
 ```bash
-docker compose run --rm app python -m pytest tests/ -v
+docker compose run --rm app sh -c "pip install -r requirements-dev.txt && python -m pytest tests/ -v"
 ```
 
 ## Tests
+Tests and experiment tracking need the dev dependencies (pytest, mlflow):
 ```bash
+pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
+
+## Deploy (Streamlit Community Cloud)
+The app is deployment-ready and self-bootstraps: on first run it builds the
+retrieval index from the corpus shipped in `data/raw/` if no prebuilt index is
+found, so a fresh clone "just works".
+
+1. Push the repo to GitHub (public repo = free hosting).
+2. Go to [share.streamlit.io](https://share.streamlit.io), create an app, and point it at:
+   - **Main file path:** `app/streamlit_app.py`
+   - **Python version:** 3.11
+   - Streamlit installs `requirements.txt` automatically (lean runtime deps only —
+     `mlflow`/`pytest` live in `requirements-dev.txt` and are excluded).
+3. In **Settings → Secrets**, add your key (exposed to the app as an env var):
+   ```toml
+   OPENAI_API_KEY = "sk-..."
+   ```
+   Without it the app still runs in offline extractive mode.
+
+Notes: the first load downloads the embedding model (~130 MB) and builds the
+index, so cold starts take a moment; free apps also sleep after inactivity.
+Keep the cross-encoder **re-rank** toggle off by default to stay within the
+free tier's memory budget (it loads a second model on demand).
+
+### Embedding the demo on your website
+Streamlit apps can be embedded in an `<iframe>` using the `?embed=true` flag:
+```html
+<iframe
+  src="https://YOUR-APP.streamlit.app/?embed=true"
+  height="800" width="100%" style="border:none;"
+></iframe>
+```
+The `embed=true` parameter hides the Streamlit chrome (menu/footer) for a clean
+inline demo.
 
 ## To do
 - Add metadata filtering by MeSH terms

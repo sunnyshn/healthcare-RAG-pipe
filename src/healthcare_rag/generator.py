@@ -80,11 +80,12 @@ def _offline_answer(question: str, hits: List[SearchResult]) -> str:
             f"threshold: {LOW_EVIDENCE_THRESHOLD}). Add relevant documents via "
             "fetch_pubmed.py and rebuild the index."
         )
-    snippets = "\n".join([f"- {h.title}: {h.text[:240]}..." for h in hits])
+    snippets = "\n".join([f"- {h.title}: {h.text[:240]}…" for h in hits])
     return (
-        "[Extractive baseline — add OPENAI_API_KEY for grounded generation]\n\n"
-        f"Question: {question}\n\n"
-        f"Evidence snippets:\n{snippets}"
+        "Showing the most relevant evidence from the corpus below. "
+        "Connect a language model to generate a single synthesized, cited answer.\n\n"
+        f"Top evidence for: {question}\n\n"
+        f"{snippets}"
     )
 
 

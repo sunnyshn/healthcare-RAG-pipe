@@ -10,4 +10,5 @@ __pycache__
 tests/
 data/index/
 data/processed/
-.streamlit/
+mlruns/
+.streamlit/secrets.toml

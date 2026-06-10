@@ -1,4 +1,5 @@
 import math
+import os
 import re
 import sys
 import time
@@ -29,6 +30,16 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# Bridge Streamlit Cloud secrets to env vars so generator.py (which reads
+# os.getenv) works in deployment without code changes. Harmless locally.
+try:
+    if "OPENAI_API_KEY" in st.secrets and not os.getenv("OPENAI_API_KEY"):
+        os.environ["OPENAI_API_KEY"] = str(st.secrets["OPENAI_API_KEY"])
+except Exception:
+    pass  # No secrets.toml configured (local dev) — fall back to .env / env vars.
+
+LLM_ENABLED = bool(os.getenv("OPENAI_API_KEY"))
 
 
 # ---------------------------------------------------------------------------
@@ -136,9 +147,22 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 def load_retriever() -> HybridRetriever:
     """Load the hybrid retriever once and cache it across reruns.
 
-    Call ``load_retriever.clear()`` after rebuilding the index.
+    On a fresh deploy the prebuilt index won't exist (it's gitignored), so we
+    bootstrap it from the corpus that ships with the repo. Call
+    ``load_retriever.clear()`` after rebuilding the index.
     """
-    return HybridRetriever.load(INDEX_PATH)
+    if INDEX_PATH.exists():
+        return HybridRetriever.load(INDEX_PATH)
+
+    # Bootstrap: build the index from the shipped corpus (downloads the
+    # embedding model on first run, then caches it).
+    df = normalize_documents(read_jsonl(RAW_PATH))
+    PROCESSED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(PROCESSED_PATH, index=False)
+    retriever = HybridRetriever.build(df)
+    INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+    retriever.save(INDEX_PATH)
+    return retriever
 
 
 def _source_url(hit) -> str | None:
@@ -329,14 +353,15 @@ tab_ask, tab_corpus = st.tabs(["🔍  Ask", "📚  Manage Corpus"])
 # ===========================  ASK TAB  =====================================
 
 with tab_ask:
-    if not INDEX_PATH.exists():
+    if not INDEX_PATH.exists() and not RAW_PATH.exists():
         st.warning(
-            "No search index found. Go to the **Manage Corpus** tab and click "
-            "**Rebuild Index** to build one."
+            "No corpus or index found. Go to the **Manage Corpus** tab to fetch "
+            "documents and build an index."
         )
         st.stop()
 
-    retriever = load_retriever()
+    with st.spinner("Loading retrieval index…"):
+        retriever = load_retriever()
     meta = retriever.tfidf.metadata
 
     # ── Sidebar: retrieval settings ──────────────────────────────────────────
@@ -371,6 +396,13 @@ with tab_ask:
             f"📁 {len(meta)} indexed passages\n\n"
             f"🏷️ {len(specialties)} specialties"
         )
+        if LLM_ENABLED:
+            st.caption("🟢 LLM generation enabled")
+        else:
+            st.caption(
+                "🟡 Offline mode — showing an extractive baseline. "
+                "Set `OPENAI_API_KEY` for streamed, grounded answers."
+            )
 
     # ── Main query area ──────────────────────────────────────────────────────
     question = st.text_input(
