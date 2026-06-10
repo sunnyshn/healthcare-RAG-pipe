@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from healthcare_rag.config import INDEX_PATH, PROCESSED_PATH, RAW_PATH
 from healthcare_rag.data_io import normalize_documents, read_jsonl
 from healthcare_rag.faithfulness import check_faithfulness
-from healthcare_rag.generator import ABSTENTION_MARKER, generate_answer
+from healthcare_rag.generator import ABSTENTION_MARKER, stream_answer
 from healthcare_rag.retriever import HybridRetriever
 
 import fetch_pubmed as fp
@@ -70,7 +70,22 @@ CUSTOM_CSS = """
 .answer-card .cite {
     background: #E0EFEA; color: #226152; border-radius: 6px;
     padding: 0 0.32rem; font-weight: 600; font-size: 0.9em;
+    text-decoration: none;
 }
+a.cite:hover { background: #C8E2D9; text-decoration: none; }
+
+/* Blinking caret while the answer streams in */
+.type-cursor {
+    display: inline-block; margin-left: 1px; color: #2E7D6B;
+    animation: blink 1s step-start infinite; font-weight: 700;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* Linked evidence title */
+.ev-title-link {
+    font-weight: 650; color: #15302C; font-size: 1.02rem; text-decoration: none;
+}
+.ev-title-link:hover { color: #2E7D6B; text-decoration: underline; }
 
 /* Evidence card */
 .ev-card {
@@ -126,12 +141,35 @@ def load_retriever() -> HybridRetriever:
     return HybridRetriever.load(INDEX_PATH)
 
 
-def _format_citations(text: str) -> str:
-    """Wrap inline [n] citations in styled chips (HTML-escaped first)."""
+def _source_url(hit) -> str | None:
+    """Return a public URL for a hit when we can build one (PubMed PMIDs)."""
+    if hit.doc_id.startswith("pmid-"):
+        pmid = hit.doc_id.split("pmid-", 1)[1]
+        if pmid.isdigit():
+            return f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+    return None
+
+
+def _format_citations(text: str, hits=None) -> str:
+    """Wrap inline [n] citations in chips, linking to the source when available."""
     safe = (
         text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     )
-    safe = re.sub(r"\[(\d+)\]", r'<span class="cite">[\1]</span>', safe)
+    urls = {}
+    if hits:
+        for i, h in enumerate(hits, start=1):
+            url = _source_url(h)
+            if url:
+                urls[i] = url
+
+    def _repl(match):
+        n = int(match.group(1))
+        url = urls.get(n)
+        if url:
+            return f'<a class="cite" href="{url}" target="_blank" rel="noopener">[{n}]</a>'
+        return f'<span class="cite">[{n}]</span>'
+
+    safe = re.sub(r"\[(\d+)\]", _repl, safe)
     return safe.replace("\n", "<br>")
 
 
@@ -153,17 +191,33 @@ def _score_bar(label: str, value: float, kind: str, fill: float | None = None) -
     )
 
 
-def render_answer(answer: str) -> None:
-    is_abstain = answer.strip().upper().startswith(ABSTENTION_MARKER.upper())
-    cls = "answer-card abstain" if is_abstain else "answer-card"
-    heading = "Insufficient evidence" if is_abstain else "Answer"
-    icon = "⚠️" if is_abstain else "✅"
-    body = _format_citations(answer)
-    st.markdown(
-        f'<div class="{cls}"><div style="font-weight:700;margin-bottom:0.5rem;">'
-        f'{icon} {heading}</div>{body}</div>',
-        unsafe_allow_html=True,
+def _answer_card_html(answer: str, hits=None, streaming: bool = False) -> str:
+    is_abstain = (
+        not streaming
+        and answer.strip().upper().startswith(ABSTENTION_MARKER.upper())
     )
+    cls = "answer-card abstain" if is_abstain else "answer-card"
+    if streaming:
+        heading, icon = "Generating…", "✍️"
+    else:
+        heading = "Insufficient evidence" if is_abstain else "Answer"
+        icon = "⚠️" if is_abstain else "✅"
+    body = _format_citations(answer, hits)
+    cursor = '<span class="type-cursor">▌</span>' if streaming else ""
+    return (
+        f'<div class="{cls}"><div style="font-weight:700;margin-bottom:0.5rem;">'
+        f"{icon} {heading}</div>{body}{cursor}</div>"
+    )
+
+
+def stream_answer_into(placeholder, question, hits) -> str:
+    """Stream the answer into a placeholder, keeping the styled card. Returns full text."""
+    acc = ""
+    for chunk in stream_answer(question, hits):
+        acc += chunk
+        placeholder.markdown(_answer_card_html(acc, hits, streaming=True), unsafe_allow_html=True)
+    placeholder.markdown(_answer_card_html(acc, hits, streaming=False), unsafe_allow_html=True)
+    return acc
 
 
 def render_grounding(report) -> None:
@@ -226,12 +280,24 @@ def render_evidence(hits) -> None:
             fill = 1.0 / (1.0 + math.exp(-h.score_rerank))
             bars += _score_bar("re-rank", h.score_rerank, "rerank", fill=fill)
 
+        url = _source_url(h)
+        title_safe = h.title.replace("<", "&lt;").replace(">", "&gt;")
+        if url:
+            title_html = (
+                f'<a class="ev-title-link" href="{url}" target="_blank" '
+                f'rel="noopener">{title_safe} ↗</a>'
+            )
+            source_html = f'<a href="{url}" target="_blank" rel="noopener">{h.source}</a>'
+        else:
+            title_html = f'<span class="ev-title">{title_safe}</span>'
+            source_html = h.source
+
         st.markdown(
             f'<div class="ev-card">'
             f'<div class="ev-head"><span class="ev-num">{i}</span>'
-            f'<span class="ev-title">{h.title}</span></div>'
+            f"{title_html}</div>"
             f'<div class="ev-meta">{spec_badge}{year_badge}'
-            f'&nbsp;{h.source} &middot; <code>{h.doc_id}</code> &middot; RRF {h.score:.4f}</div>'
+            f'&nbsp;{source_html} &middot; <code>{h.doc_id}</code> &middot; RRF {h.score:.4f}</div>'
             f'<div class="ev-text">{text}</div>'
             f"{bars}"
             f"</div>",
@@ -334,10 +400,8 @@ with tab_ask:
                 "No documents matched the selected filters. Try broadening your criteria."
             )
         else:
-            with st.spinner("Generating grounded answer…"):
-                answer = generate_answer(question, hits)
-
-            render_answer(answer)
+            answer_placeholder = st.empty()
+            answer = stream_answer_into(answer_placeholder, question, hits)
 
             # Citation faithfulness check (reuses the retriever's dense encoder).
             is_abstain = answer.strip().upper().startswith(ABSTENTION_MARKER.upper())

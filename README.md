@@ -8,7 +8,7 @@ Starter for a healthcare evidence assistant using retrieval + grounded generatio
 - `scripts/index.py`: builds hybrid retrieval index (`data/index/hybrid_index.pkl`; downloads `BAAI/bge-small-en-v1.5` via FastEmbed on first run)
 - `scripts/query.py`: CLI query for Q&A with citations (add `--rerank` for cross-encoder re-ranking)
 - `scripts/eval.py`: retrieval eval with recall@1 and recall@3
-- `app/streamlit_app.py`: local web demo
+- `app/streamlit_app.py`: local web demo (streaming answers, clickable PubMed citations, live grounding check)
 - `src/healthcare_rag/`: package code (retriever, reranker, generator, faithfulness, data I/O, config)
 
 ## How retrieval works

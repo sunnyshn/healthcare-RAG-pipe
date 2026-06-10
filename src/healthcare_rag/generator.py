@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import List
+from typing import Dict, Iterator, List
 
 import openai
 
@@ -58,40 +58,72 @@ def _build_context(hits: List[SearchResult]) -> str:
     return warning + "\n\n".join(blocks)
 
 
+def _build_messages(question: str, hits: List[SearchResult]) -> List[Dict[str, str]]:
+    context = _build_context(hits)
+    user_msg = f"Question:\n{question}\n\nEvidence:\n{context}"
+    return [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": user_msg},
+    ]
+
+
+def _offline_answer(question: str, hits: List[SearchResult]) -> str:
+    """Deterministic fallback when no API key is set: abstain or extract."""
+    max_dense = max(
+        (h.score_dense for h in hits if h.score_dense is not None),
+        default=0.0,
+    )
+    if max_dense < LOW_EVIDENCE_THRESHOLD:
+        return (
+            f"{ABSTENTION_MARKER} No closely matching evidence found in the "
+            f"corpus for this question (max semantic similarity: {max_dense:.2f}, "
+            f"threshold: {LOW_EVIDENCE_THRESHOLD}). Add relevant documents via "
+            "fetch_pubmed.py and rebuild the index."
+        )
+    snippets = "\n".join([f"- {h.title}: {h.text[:240]}..." for h in hits])
+    return (
+        "[Extractive baseline — add OPENAI_API_KEY for grounded generation]\n\n"
+        f"Question: {question}\n\n"
+        f"Evidence snippets:\n{snippets}"
+    )
+
+
 def generate_answer(question: str, hits: List[SearchResult]) -> str:
     api_key = os.getenv("OPENAI_API_KEY")
-    context = _build_context(hits)
-
     if not api_key:
-        # Offline fallback: abstain when evidence is weak, extract when it is strong.
-        max_dense = max(
-            (h.score_dense for h in hits if h.score_dense is not None),
-            default=0.0,
-        )
-        if max_dense < LOW_EVIDENCE_THRESHOLD:
-            return (
-                f"{ABSTENTION_MARKER} No closely matching evidence found in the "
-                f"corpus for this question (max semantic similarity: {max_dense:.2f}, "
-                f"threshold: {LOW_EVIDENCE_THRESHOLD}). Add relevant documents via "
-                "fetch_pubmed.py and rebuild the index."
-            )
-        snippets = "\n".join([f"- {h.title}: {h.text[:240]}..." for h in hits])
-        return (
-            "[Extractive baseline — add OPENAI_API_KEY for grounded generation]\n\n"
-            f"Question: {question}\n\n"
-            f"Evidence snippets:\n{snippets}"
-        )
+        return _offline_answer(question, hits)
 
     client = openai.OpenAI(api_key=api_key)
-    user_msg = f"Question:\n{question}\n\nEvidence:\n{context}"
-
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
-        messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
+        messages=_build_messages(question, hits),
         temperature=0.1,
     )
     return response.choices[0].message.content.strip()
+
+
+def stream_answer(question: str, hits: List[SearchResult]) -> Iterator[str]:
+    """Yield the answer incrementally as text chunks (for live UI rendering).
+
+    Falls back to yielding the full offline answer in one chunk when no API key
+    is configured, so callers can use a single streaming code path.
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        yield _offline_answer(question, hits)
+        return
+
+    client = openai.OpenAI(api_key=api_key)
+    stream = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=_build_messages(question, hits),
+        temperature=0.1,
+        stream=True,
+    )
+    for chunk in stream:
+        if not chunk.choices:
+            continue
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield delta
 

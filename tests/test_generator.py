@@ -12,6 +12,7 @@ from healthcare_rag.generator import (
     LOW_EVIDENCE_THRESHOLD,
     _build_context,
     generate_answer,
+    stream_answer,
 )
 from healthcare_rag.retriever import SearchResult
 
@@ -160,3 +161,74 @@ class TestGenerateAnswerLLM:
         call_kwargs = mock_client_instance.chat.completions.create.call_args.kwargs
         system_msg = call_kwargs["messages"][0]["content"]
         assert ABSTENTION_MARKER in system_msg
+
+
+# ── stream_answer ────────────────────────────────────────────────────────────
+
+
+def _chunk(content):
+    """Build a fake streaming chunk with a single choice delta."""
+    ch = MagicMock()
+    ch.choices = [MagicMock()]
+    ch.choices[0].delta.content = content
+    return ch
+
+
+class TestStreamAnswerOffline:
+    @pytest.fixture(autouse=True)
+    def _clear_api_key(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    def test_yields_offline_answer_in_one_chunk(self):
+        hits = [_make_hit(score_dense=0.90)]
+        chunks = list(stream_answer("question", hits))
+        assert len(chunks) == 1
+        # Streamed text should match the non-streaming offline answer.
+        assert chunks[0] == generate_answer("question", hits)
+
+    def test_offline_abstains_on_low_similarity(self):
+        hits = [_make_hit(score_dense=LOW_EVIDENCE_THRESHOLD - 0.1)]
+        full = "".join(stream_answer("irrelevant", hits))
+        assert full.upper().startswith(ABSTENTION_MARKER.upper())
+
+
+class TestStreamAnswerLLM:
+    def test_streams_and_joins_deltas(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key-fake")
+
+        fake_stream = [
+            _chunk("ACE inhibitors "),
+            _chunk("are recommended "),
+            _chunk(None),  # keep-alive / role chunk with no text
+            _chunk("[1]."),
+        ]
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create.return_value = fake_stream
+
+        with patch(
+            "healthcare_rag.generator.openai.OpenAI",
+            create=True,
+            return_value=mock_client_instance,
+        ):
+            full = "".join(stream_answer("hypertension?", [_make_hit(score_dense=0.9)]))
+
+        assert full == "ACE inhibitors are recommended [1]."
+        call_kwargs = mock_client_instance.chat.completions.create.call_args.kwargs
+        assert call_kwargs["stream"] is True
+
+    def test_handles_chunk_without_choices(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key-fake")
+
+        empty = MagicMock()
+        empty.choices = []
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create.return_value = [empty, _chunk("ok")]
+
+        with patch(
+            "healthcare_rag.generator.openai.OpenAI",
+            create=True,
+            return_value=mock_client_instance,
+        ):
+            full = "".join(stream_answer("q", [_make_hit(score_dense=0.9)]))
+
+        assert full == "ok"
