@@ -6,11 +6,22 @@ Starter for a healthcare evidence assistant using retrieval + grounded generatio
 - `scripts/fetch_pubmed.py`: fetch PubMed abstracts and append to corpus
 - `scripts/ingest.py`: loads and cleans raw corpus into tabular format
 - `scripts/index.py`: builds hybrid retrieval index (`data/index/hybrid_index.pkl`; downloads `BAAI/bge-small-en-v1.5` via FastEmbed on first run)
-- `scripts/query.py`: CLI query for Q&A with citations
+- `scripts/query.py`: CLI query for Q&A with citations (add `--rerank` for cross-encoder re-ranking)
 - `scripts/eval.py`: retrieval eval with recall@1 and recall@3
 - `app/streamlit_app.py`: local web demo
-- `src/healthcare_rag/`: package code
-- `tests/`: unit tests (pytest)
+- `src/healthcare_rag/`: package code (retriever, reranker, generator, data I/O, config)
+
+## How retrieval works
+1. **Stage 1 — hybrid retrieval.** A TF-IDF (lexical) and a dense embedding
+   (semantic) retriever each rank the corpus; their rankings are merged with
+   Reciprocal Rank Fusion (RRF).
+2. **Stage 2 — cross-encoder re-ranking (optional).** With `--rerank`, the
+   hybrid stage returns a wider candidate pool (`RERANK_CANDIDATES`, default 20)
+   and a cross-encoder (`Xenova/ms-marco-MiniLM-L-6-v2`) scores each
+   (query, passage) pair *jointly* to reorder the final top-k. This trades a
+   little latency for more precise top results.
+3. **Grounded generation.** The LLM answers strictly from the retrieved
+   passages and abstains when evidence is insufficient.
 
 ## Quickstart
 ```bash
@@ -48,10 +59,14 @@ python scripts/ingest.py
 python scripts/index.py
 python scripts/query.py --question "What is first-line treatment for stage 1 hypertension with diabetes?"
 
+# Add cross-encoder re-ranking for more precise top results
+python scripts/query.py --question "diabetes drug options" --rerank
+
 # Filter by specialty or year range
 python scripts/query.py --question "diabetes drug options" --specialty endocrinology --year_min 2020
 
-python scripts/eval.py
+python scripts/eval.py            # baseline retrieval + abstention metrics
+python scripts/eval.py --rerank   # same metrics with cross-encoder re-ranking
 streamlit run app/streamlit_app.py
 ```
 

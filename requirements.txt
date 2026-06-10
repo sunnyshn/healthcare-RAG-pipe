@@ -6,5 +6,5 @@ tqdm
 requests>=2.28
 python-dotenv
 openai>=1.0,<2
-fastembed>=0.3,<1
+fastembed>=0.4,<1
 pytest>=7.0,<9

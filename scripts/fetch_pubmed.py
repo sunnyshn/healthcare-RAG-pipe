@@ -2,12 +2,12 @@
 
 Usage
 -----
-    python scripts/fetch_pubmed.py --query "type 2 diabetes management" --max 50 --specialty endocrinology
-    python scripts/fetch_pubmed.py --query "sepsis treatment guidelines" --max 30 --specialty "infectious disease"
-    python scripts/fetch_pubmed.py --query "breast cancer immunotherapy" --max 100 --specialty oncology
+    python fetch_pubmed.py --query "type 2 diabetes management" --max 50 --specialty endocrinology
+    python fetch_pubmed.py --query "sepsis treatment guidelines" --max 30 --specialty "infectious disease"
+    python fetch_pubmed.py --query "breast cancer immunotherapy" --max 100 --specialty oncology
 
 After fetching, rebuild the search index:
-    python scripts/ingest.py && python scripts/index.py
+    python ingest.py && python index.py
 
 Rate limits (NCBI E-utilities)
 -------------------------------
@@ -233,7 +233,7 @@ def main() -> None:
             f.write(json.dumps(doc) + "\n")
 
     print(f"\nAppended {len(new_docs)} new document(s) to {RAW_PATH}")
-    print("Rebuild the index with:\n  python scripts/ingest.py && python scripts/index.py")
+    print("Rebuild the index with:\n  python ingest.py && python index.py")
 
 
 if __name__ == "__main__":

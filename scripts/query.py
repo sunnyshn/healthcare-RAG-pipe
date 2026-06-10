@@ -35,6 +35,11 @@ def main() -> None:
         metavar="YEAR",
         help="Latest publication year to include",
     )
+    parser.add_argument(
+        "--rerank",
+        action="store_true",
+        help="Enable cross-encoder re-ranking (slower, more precise top results)",
+    )
     args = parser.parse_args()
 
     year_range: Optional[Tuple[int, int]] = None
@@ -49,6 +54,7 @@ def main() -> None:
         k=args.top_k,
         specialty=args.specialty,
         year_range=year_range,
+        rerank=args.rerank,
     )
 
     if not hits:
@@ -64,6 +70,8 @@ def main() -> None:
         extra = ""
         if h.score_sparse is not None and h.score_dense is not None:
             extra = f" | cos_sparse={h.score_sparse:.3f} cos_dense={h.score_dense:.3f}"
+        if h.score_rerank is not None:
+            extra += f" | rerank={h.score_rerank:.3f}"
         specialty_tag = f" | specialty={h.specialty}" if h.specialty else ""
         print(
             f"[{i}] {h.title} | {h.source} ({h.year}){specialty_tag}"

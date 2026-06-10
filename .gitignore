@@ -1,0 +1,16 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.conda-env/
+
+# Generated pipeline artifacts
+data/processed/
+data/index/
+
+# Streamlit (keep config.toml tracked; ignore local secrets)
+.streamlit/secrets.toml

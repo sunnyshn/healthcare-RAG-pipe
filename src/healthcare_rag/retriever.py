@@ -10,6 +10,8 @@ import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from healthcare_rag.config import RERANK_CANDIDATES
+
 
 # Reciprocal rank fusion constant (common default; balances sparse vs dense ranks).
 RRF_K = 60
@@ -26,6 +28,7 @@ class SearchResult:
     specialty: str = field(default="")
     score_sparse: Optional[float] = None
     score_dense: Optional[float] = None
+    score_rerank: Optional[float] = None
 
 
 class TfidfRetriever:
@@ -142,6 +145,7 @@ class HybridRetriever:
         self.doc_embeddings = doc_embeddings.astype(np.float64, copy=False)
         self.embedding_model_name = embedding_model_name
         self._encoder = None
+        self._reranker = None
 
     def _encoder_model(self):
         if self._encoder is None:
@@ -149,6 +153,13 @@ class HybridRetriever:
 
             self._encoder = TextEmbedding(model_name=self.embedding_model_name)
         return self._encoder
+
+    def _reranker_model(self):
+        if self._reranker is None:
+            from healthcare_rag.reranker import CrossEncoderReranker
+
+            self._reranker = CrossEncoderReranker()
+        return self._reranker
 
     @classmethod
     def build(
@@ -193,7 +204,7 @@ class HybridRetriever:
             payload = pickle.load(f)
         if payload.get("kind") != "hybrid":
             raise ValueError(
-                "Index file is not a hybrid index. Re-run `python scripts/index.py` to rebuild."
+                "Index file is not a hybrid index. Re-run `python index.py` to rebuild."
             )
         tf = payload["tfidf"]
         tfidf = TfidfRetriever(
@@ -213,7 +224,15 @@ class HybridRetriever:
         k: int = 3,
         specialty: Optional[str] = None,
         year_range: Optional[Tuple[int, int]] = None,
+        rerank: bool = False,
+        rerank_candidates: Optional[int] = None,
     ) -> List[SearchResult]:
+        """Hybrid retrieval, optionally followed by cross-encoder re-ranking.
+
+        When ``rerank`` is True, the first stage returns a larger candidate
+        pool (``rerank_candidates``, default :data:`config.RERANK_CANDIDATES`)
+        ranked by RRF, and a cross-encoder re-ranks those down to ``k``.
+        """
         metadata = self.tfidf.metadata
         allowed = _apply_filters(metadata, specialty=specialty, year_range=year_range)
         allowed_pos = np.array([metadata.index.get_loc(i) for i in allowed])
@@ -239,7 +258,13 @@ class HybridRetriever:
         for rank, idx in enumerate(dense_rank, start=1):
             rrf[idx] += 1.0 / (RRF_K + rank)
 
-        best_idx = np.argsort(rrf)[::-1][:k]
+        # Stage 1: pull a wider candidate pool when re-ranking downstream.
+        if rerank:
+            pool_size = rerank_candidates if rerank_candidates is not None else RERANK_CANDIDATES
+            pool_size = max(k, pool_size)
+        else:
+            pool_size = k
+        best_idx = np.argsort(rrf)[::-1][:pool_size]
 
         results: List[SearchResult] = []
         for idx in best_idx:
@@ -257,5 +282,10 @@ class HybridRetriever:
                     score_dense=float(dense_scores_sub[int(idx)]),
                 )
             )
+
+        # Stage 2: cross-encoder re-ranking on the candidate pool.
+        if rerank and results:
+            results = self._reranker_model().rerank(query, results, top_k=k)
+
         return results
 

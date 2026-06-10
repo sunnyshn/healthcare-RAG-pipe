@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -57,13 +58,15 @@ def is_abstention(answer: str) -> bool:
     return answer.strip().upper().startswith(ABSTENTION_MARKER.upper())
 
 
-def _corpus_covers(question: str, retriever: HybridRetriever, k: int = 3) -> bool:
+def _corpus_covers(
+    question: str, retriever: HybridRetriever, k: int = 3, rerank: bool = False
+) -> bool:
     """Return True if the corpus likely covers this question.
 
     Uses the same dense-similarity threshold as the generator's low-confidence
     warning, so the eval and the model stay in sync as the corpus grows.
     """
-    hits = retriever.search(question, k=k)
+    hits = retriever.search(question, k=k, rerank=rerank)
     max_dense = max(
         (h.score_dense for h in hits if h.score_dense is not None),
         default=0.0,
@@ -83,15 +86,26 @@ def _section(title: str) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Evaluate retrieval and abstention quality.")
+    parser.add_argument(
+        "--rerank",
+        action="store_true",
+        help="Enable cross-encoder re-ranking during retrieval",
+    )
+    args = parser.parse_args()
+
     retriever = HybridRetriever.load(INDEX_PATH)
     has_api_key = bool(os.getenv("OPENAI_API_KEY"))
+
+    if args.rerank:
+        print("Cross-encoder re-ranking: ENABLED")
 
     # ── Part 1: Retrieval quality ────────────────────────────────────────────
     _section("Part 1: Retrieval quality (recall@k)")
 
     retrieval_rows = []
     for item in ANSWERABLE_SET:
-        hits = retriever.search(item["question"], k=3)
+        hits = retriever.search(item["question"], k=3, rerank=args.rerank)
         keyword = item["expected_keyword"]
         retrieval_rows.append(
             {
@@ -136,7 +150,7 @@ def main() -> None:
         still_unanswerable = []
         covered = []
         for question in UNANSWERABLE_SET:
-            if _corpus_covers(question, retriever):
+            if _corpus_covers(question, retriever, rerank=args.rerank):
                 covered.append(question)
             else:
                 still_unanswerable.append(question)
@@ -153,12 +167,12 @@ def main() -> None:
         if not still_unanswerable:
             print(
                 "  All unanswerable questions are now covered by the corpus.\n"
-                "  Add new out-of-scope questions to UNANSWERABLE_SET in scripts/eval.py."
+                "  Add new out-of-scope questions to UNANSWERABLE_SET in eval.py."
             )
         else:
             print(f"  Testing {len(still_unanswerable)} out-of-scope question(s)...\n")
             for question in still_unanswerable:
-                hits = retriever.search(question, k=3)
+                hits = retriever.search(question, k=3, rerank=args.rerank)
                 answer = generate_answer(question, hits)
                 abstained = is_abstention(answer)
                 abstention_rows.append(

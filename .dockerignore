@@ -1,0 +1,13 @@
+.git
+.github
+.env
+.venv
+.conda-env
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+tests/
+data/index/
+data/processed/
+.streamlit/

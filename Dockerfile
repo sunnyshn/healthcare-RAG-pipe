@@ -11,8 +11,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Pre-download the BGE embedding model so the first query doesn't stall.
+# Pre-download the embedding + reranker models so the first query doesn't stall.
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
+RUN python -c "from fastembed.rerank.cross_encoder import TextCrossEncoder; TextCrossEncoder(model_name='Xenova/ms-marco-MiniLM-L-6-v2')"
 
 EXPOSE 8501
 
