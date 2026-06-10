@@ -3,12 +3,22 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from healthcare_rag.config import EVAL_PATH, INDEX_PATH
+from healthcare_rag.config import (
+    EMBEDDING_MODEL_NAME,
+    EVAL_PATH,
+    INDEX_PATH,
+    MLFLOW_EXPERIMENT_NAME,
+    MLFLOW_TRACKING_URI,
+    RERANK_CANDIDATES,
+    RERANK_MODEL_NAME,
+)
+from healthcare_rag.faithfulness import DEFAULT_SUPPORT_THRESHOLD, check_faithfulness
 from healthcare_rag.generator import ABSTENTION_MARKER, LOW_EVIDENCE_THRESHOLD, generate_answer
 from healthcare_rag.retriever import HybridRetriever
 
@@ -80,6 +90,26 @@ def _section(title: str) -> None:
     print("=" * 60)
 
 
+def _log_mlflow(params: dict, metrics: dict, artifact_path, run_name: str) -> None:
+    """Log one eval run to MLflow. No-op (with a note) if MLflow is unavailable."""
+    try:
+        import mlflow
+    except ImportError:
+        print("\n  [MLflow] not installed — skipping experiment logging (pip install mlflow).")
+        return
+
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
+    with mlflow.start_run(run_name=run_name):
+        mlflow.log_params(params)
+        # Only log real numbers; skip metrics that weren't computed this run.
+        mlflow.log_metrics({k: float(v) for k, v in metrics.items() if v is not None})
+        if artifact_path is not None and Path(artifact_path).exists():
+            mlflow.log_artifact(str(artifact_path))
+    print(f"\n  [MLflow] Logged run '{run_name}' to {MLFLOW_TRACKING_URI}")
+    print(f"  [MLflow] View with: mlflow ui --backend-store-uri {MLFLOW_TRACKING_URI}")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -92,6 +122,16 @@ def main() -> None:
         action="store_true",
         help="Enable cross-encoder re-ranking during retrieval",
     )
+    parser.add_argument(
+        "--no-mlflow",
+        action="store_true",
+        help="Disable logging this run to MLflow",
+    )
+    parser.add_argument(
+        "--run-name",
+        default=None,
+        help="Optional MLflow run name (defaults to a config-based name)",
+    )
     args = parser.parse_args()
 
     retriever = HybridRetriever.load(INDEX_PATH)
@@ -99,6 +139,30 @@ def main() -> None:
 
     if args.rerank:
         print("Cross-encoder re-ranking: ENABLED")
+
+    # Params and metrics accumulated across the eval parts for MLflow logging.
+    params = {
+        "rerank": args.rerank,
+        "top_k": 3,
+        "embedding_model": EMBEDDING_MODEL_NAME,
+        "rerank_model": RERANK_MODEL_NAME if args.rerank else "none",
+        "rerank_candidates": RERANK_CANDIDATES if args.rerank else 0,
+        "low_evidence_threshold": LOW_EVIDENCE_THRESHOLD,
+        "support_threshold": DEFAULT_SUPPORT_THRESHOLD,
+        "generation_mode": "llm" if has_api_key else "offline_heuristic",
+        "corpus_size": int(len(retriever.tfidf.metadata)),
+        "n_answerable": len(ANSWERABLE_SET),
+        "n_unanswerable": len(UNANSWERABLE_SET),
+    }
+    metrics = {
+        "recall_at_1": None,
+        "recall_at_3": None,
+        "abstention_rate": None,
+        "citation_coverage": None,
+        "citation_support": None,
+        "invalid_citation_rate": None,
+        "mean_support": None,
+    }
 
     # ── Part 1: Retrieval quality ────────────────────────────────────────────
     _section("Part 1: Retrieval quality (recall@k)")
@@ -117,6 +181,8 @@ def main() -> None:
         )
 
     retrieval_df = pd.DataFrame(retrieval_rows)
+    metrics["recall_at_1"] = retrieval_df["recall_at_1"].mean()
+    metrics["recall_at_3"] = retrieval_df["recall_at_3"].mean()
     retrieval_summary = pd.DataFrame(
         [
             {
@@ -187,6 +253,7 @@ def main() -> None:
 
             abstention_df = pd.DataFrame(abstention_rows)
             rate = abstention_df["abstained"].mean()
+            metrics["abstention_rate"] = rate
             print(
                 f"\n  Abstention rate: {rate:.0%} "
                 f"({int(abstention_df['abstained'].sum())}/{len(still_unanswerable)} questions)"
@@ -197,6 +264,67 @@ def main() -> None:
                     "  Review 'answer_preview' in the CSV for potential hallucinations."
                 )
 
+    # ── Part 3: Citation faithfulness ────────────────────────────────────────
+    _section("Part 3: Citation faithfulness (requires OPENAI_API_KEY)")
+    print(f"  Support threshold : dense cosine >= {DEFAULT_SUPPORT_THRESHOLD}")
+    print("  Coverage = claims that cite a source | Support = citations on-topic\n")
+
+    faithfulness_rows = []
+    if not has_api_key:
+        print(
+            "  Skipped: no OPENAI_API_KEY set. The offline extractive baseline does not\n"
+            "  emit [n] citations, so faithfulness cannot be measured. Set the key to enable."
+        )
+    else:
+
+        def _embed_fn(texts):
+            encoder = retriever._encoder_model()
+            return [np.asarray(v, dtype=np.float64) for v in encoder.embed(list(texts))]
+
+        for item in ANSWERABLE_SET:
+            question = item["question"]
+            hits = retriever.search(question, k=3, rerank=args.rerank)
+            answer = generate_answer(question, hits)
+            report = check_faithfulness(answer, hits, embed_fn=_embed_fn)
+
+            if report.abstained:
+                print(f"  [ABSTAINED] {question[:66]}")
+                continue
+
+            faithfulness_rows.append(
+                {
+                    "question": question,
+                    "citation_coverage": report.citation_coverage,
+                    "citation_support": report.citation_support,
+                    "invalid_citation_rate": report.invalid_citation_rate,
+                    "mean_support": report.mean_support,
+                }
+            )
+            flag = "" if report.invalid_citations == 0 else f"  !! {report.invalid_citations} invalid cite(s)"
+            print(
+                f"  coverage={report.citation_coverage:.0%} "
+                f"support={report.citation_support:.0%} "
+                f"mean_sim={report.mean_support:.2f}{flag}  | {question[:50]}"
+            )
+
+        if faithfulness_rows:
+            faithfulness_df = pd.DataFrame(faithfulness_rows)
+            metrics["citation_coverage"] = faithfulness_df["citation_coverage"].mean()
+            metrics["citation_support"] = faithfulness_df["citation_support"].mean()
+            metrics["invalid_citation_rate"] = faithfulness_df["invalid_citation_rate"].mean()
+            metrics["mean_support"] = faithfulness_df["mean_support"].mean()
+            print(
+                f"\n  MEAN  coverage={faithfulness_df['citation_coverage'].mean():.0%} "
+                f"support={faithfulness_df['citation_support'].mean():.0%} "
+                f"invalid_rate={faithfulness_df['invalid_citation_rate'].mean():.0%} "
+                f"mean_sim={faithfulness_df['mean_support'].mean():.2f}"
+            )
+            if faithfulness_df["citation_support"].mean() < 1.0:
+                print(
+                    "  WARNING: some cited passages are weakly related to their claims.\n"
+                    "  Review answers for citations that don't actually support the statement."
+                )
+
     # ── Save results ─────────────────────────────────────────────────────────
     EVAL_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -205,17 +333,26 @@ def main() -> None:
     retrieval_df["abstained"] = None
     retrieval_df["answer_preview"] = None
 
+    frames = [retrieval_df]
     if abstention_rows:
         abstention_df["eval_type"] = "unanswerable"
         abstention_df["expected_keyword"] = None
         abstention_df["recall_at_1"] = None
         abstention_df["recall_at_3"] = None
-        combined = pd.concat([retrieval_df, abstention_df], ignore_index=True)
-    else:
-        combined = retrieval_df
+        frames.append(abstention_df)
+    if faithfulness_rows:
+        faithfulness_df["eval_type"] = "faithfulness"
+        frames.append(faithfulness_df)
+
+    combined = pd.concat(frames, ignore_index=True) if len(frames) > 1 else retrieval_df
 
     combined.to_csv(EVAL_PATH, index=False)
     print(f"\nFull results saved to {EVAL_PATH}")
+
+    # ── Experiment tracking ──────────────────────────────────────────────────
+    if not args.no_mlflow:
+        run_name = args.run_name or ("rerank" if args.rerank else "baseline")
+        _log_mlflow(params, metrics, EVAL_PATH, run_name)
 
 
 if __name__ == "__main__":

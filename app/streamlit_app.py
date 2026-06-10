@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from healthcare_rag.config import INDEX_PATH, PROCESSED_PATH, RAW_PATH
 from healthcare_rag.data_io import normalize_documents, read_jsonl
+from healthcare_rag.faithfulness import check_faithfulness
 from healthcare_rag.generator import ABSTENTION_MARKER, generate_answer
 from healthcare_rag.retriever import HybridRetriever
 
@@ -165,6 +166,46 @@ def render_answer(answer: str) -> None:
     )
 
 
+def render_grounding(report) -> None:
+    """Show a compact citation-faithfulness summary for a generated answer."""
+    if report.abstained or report.n_claims == 0:
+        return
+
+    cov = report.citation_coverage
+    sup = report.citation_support
+    invalid = report.invalid_citations
+
+    cols = st.columns(3)
+    cols[0].metric("Claims cited", f"{cov:.0%}", help="Share of factual claims that cite a source")
+    cols[1].metric(
+        "Citations on-topic",
+        f"{sup:.0%}",
+        help="Share of cited claims whose passage is semantically supporting",
+    )
+    cols[2].metric(
+        "Invalid citations",
+        invalid,
+        delta=None if invalid == 0 else "check answer",
+        delta_color="inverse",
+        help="Citation numbers pointing to a passage that wasn't retrieved",
+    )
+
+    cited = report.cited_claims
+    if cited:
+        with st.expander("Per-claim grounding detail"):
+            for s in cited:
+                mark = "✅" if s.supported else "⚠️"
+                score = f"{s.best_support:.2f}" if s.best_support is not None else "—"
+                cite_str = ", ".join(f"[{c}]" for c in s.valid_citations)
+                st.markdown(
+                    f"{mark} **sim {score}** {cite_str} — {strip_for_display(s.sentence)}"
+                )
+
+
+def strip_for_display(text: str) -> str:
+    return text.replace("<", "&lt;").replace(">", "&gt;")
+
+
 def render_evidence(hits) -> None:
     for i, h in enumerate(hits, start=1):
         spec_badge = (
@@ -297,6 +338,17 @@ with tab_ask:
                 answer = generate_answer(question, hits)
 
             render_answer(answer)
+
+            # Citation faithfulness check (reuses the retriever's dense encoder).
+            is_abstain = answer.strip().upper().startswith(ABSTENTION_MARKER.upper())
+            if not is_abstain:
+                def _embed_fn(texts):
+                    enc = retriever._encoder_model()
+                    return [list(v) for v in enc.embed(list(texts))]
+
+                with st.spinner("Checking citation grounding…"):
+                    report = check_faithfulness(answer, hits, embed_fn=_embed_fn)
+                render_grounding(report)
 
             st.markdown("##### 📄 Retrieved evidence")
             render_evidence(hits)

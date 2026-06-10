@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from eval import _keyword_hit, is_abstention
+from eval import _keyword_hit, _log_mlflow, is_abstention
 from healthcare_rag.generator import ABSTENTION_MARKER
 from healthcare_rag.retriever import SearchResult
 
@@ -83,3 +83,16 @@ class TestIsAbstention:
     def test_whitespace_stripped(self):
         answer = f"   \n{ABSTENTION_MARKER} explanation"
         assert is_abstention(answer) is True
+
+
+# ── _log_mlflow (graceful degradation) ────────────────────────────────────────
+
+
+class TestLogMlflow:
+    def test_no_op_when_mlflow_missing(self, monkeypatch, capsys):
+        # Force `import mlflow` to fail regardless of the environment.
+        monkeypatch.setitem(sys.modules, "mlflow", None)
+        # Should not raise even though mlflow can't be imported.
+        _log_mlflow({"rerank": False}, {"recall_at_1": 1.0}, None, "test-run")
+        out = capsys.readouterr().out
+        assert "MLflow" in out

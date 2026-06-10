@@ -9,7 +9,7 @@ Starter for a healthcare evidence assistant using retrieval + grounded generatio
 - `scripts/query.py`: CLI query for Q&A with citations (add `--rerank` for cross-encoder re-ranking)
 - `scripts/eval.py`: retrieval eval with recall@1 and recall@3
 - `app/streamlit_app.py`: local web demo
-- `src/healthcare_rag/`: package code (retriever, reranker, generator, data I/O, config)
+- `src/healthcare_rag/`: package code (retriever, reranker, generator, faithfulness, data I/O, config)
 
 ## How retrieval works
 1. **Stage 1 — hybrid retrieval.** A TF-IDF (lexical) and a dense embedding
@@ -22,6 +22,12 @@ Starter for a healthcare evidence assistant using retrieval + grounded generatio
    little latency for more precise top results.
 3. **Grounded generation.** The LLM answers strictly from the retrieved
    passages and abstains when evidence is insufficient.
+4. **Citation faithfulness (eval + UI).** Each `[n]` citation in the answer is
+   checked against the passage it points to using the dense encoder: we report
+   how many claims are cited (coverage), how many citations are actually
+   on-topic (support), and any citations pointing to a passage that wasn't
+   retrieved (invalid). Embedding similarity is a proxy for support, not a
+   formal entailment check.
 
 ## Quickstart
 ```bash
@@ -65,7 +71,7 @@ python scripts/query.py --question "diabetes drug options" --rerank
 # Filter by specialty or year range
 python scripts/query.py --question "diabetes drug options" --specialty endocrinology --year_min 2020
 
-python scripts/eval.py            # baseline retrieval + abstention metrics
+python scripts/eval.py            # retrieval recall + abstention + citation faithfulness
 python scripts/eval.py --rerank   # same metrics with cross-encoder re-ranking
 streamlit run app/streamlit_app.py
 ```
@@ -75,6 +81,25 @@ streamlit run app/streamlit_app.py
 python scripts/ingest.py --chunk --chunk-size 450 --overlap 75
 python scripts/index.py
 ```
+
+## Experiment tracking with MLflow
+Every `eval.py` run logs its config (params) and scores (metrics) to MLflow so
+you can compare runs, e.g. re-ranking on vs off:
+```bash
+python scripts/eval.py                       # logs run "baseline"
+python scripts/eval.py --rerank              # logs run "rerank"
+python scripts/eval.py --no-mlflow           # skip logging
+python scripts/eval.py --run-name my-experiment
+
+# Browse runs in the MLflow UI
+mlflow ui --backend-store-uri ./mlruns
+# then open http://localhost:5000
+```
+Logged **params**: rerank on/off, top-k, embedding/rerank model, thresholds,
+generation mode, corpus size. Logged **metrics**: recall@1, recall@3,
+abstention rate, citation coverage/support, invalid-citation rate, mean
+support. The eval CSV is attached as a run artifact. Override the tracking
+location with `MLFLOW_TRACKING_URI` / `MLFLOW_EXPERIMENT_NAME`.
 
 ## Docker
 Run the entire app in a container with no local setup required:
@@ -95,9 +120,8 @@ python -m pytest tests/ -v
 ```
 
 ## To do
-- Log experiments and prompts with MLflow
-- Add citation faithfulness and abstention rate to eval
 - Add metadata filtering by MeSH terms
+- Expand corpus diversity and the answerable/unanswerable eval sets
 
 ## Responsibility Note
 This project is for educational decision support and not for diagnosis or emergency use. Use source citations and clinician review for all outputs.
