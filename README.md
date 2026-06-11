@@ -1,15 +1,14 @@
 ---
-sdk: streamlit
-sdk_version: 1.40.2
-app_file: app/streamlit_app.py
-python_version: "3.11"
+sdk: docker
+app_port: 8501
 ---
 
 # Healthcare LLM Pipeline Starter
 Starter for a healthcare evidence assistant using retrieval + grounded generation.
 
-> The YAML block above configures Hugging Face Spaces (SDK, entry file, Python
-> version). It's ignored when running locally or on other hosts.
+> The YAML block above configures Hugging Face Spaces (Docker SDK + app port).
+> HF deprecated the native Streamlit SDK, so the app ships as a Docker Space via
+> the included `Dockerfile`. The block is ignored when running locally.
 
 ## Project layout
 - `data/raw/sample_corpus.jsonl`: healthcare corpus (grows as you fetch from PubMed)

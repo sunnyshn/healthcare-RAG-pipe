@@ -7,4 +7,5 @@ services:
       - .env
     volumes:
       # Persist the corpus and index across container restarts.
-      - ./data:/app/data
+      # Matches the container WORKDIR ($HOME/app) used for HF Spaces compatibility.
+      - ./data:/home/user/app/data
