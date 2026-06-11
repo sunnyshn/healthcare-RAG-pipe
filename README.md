@@ -1,13 +1,8 @@
 ---
-title: Healthcare Evidence Assistant
-emoji: 🩺
-colorFrom: green
-colorTo: blue
 sdk: streamlit
 sdk_version: 1.40.2
 app_file: app/streamlit_app.py
 python_version: "3.11"
-pinned: false
 ---
 
 # Healthcare LLM Pipeline Starter
@@ -43,23 +38,6 @@ Starter for a healthcare evidence assistant using retrieval + grounded generatio
    on-topic (support), and any citations pointing to a passage that wasn't
    retrieved (invalid). Embedding similarity is a proxy for support, not a
    formal entailment check.
-
-## Quickstart
-```bash
-python -m venv .venv
-# Linux / WSL:
-source .venv/bin/activate
-# Windows PowerShell:
-.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-Set up your API keys:
-```bash
-cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY (required for LLM answers)
-# Optionally add NCBI_API_KEY for faster PubMed fetching
-```
 
 ## Expand the corpus with PubMed
 ```bash
@@ -119,7 +97,6 @@ location with `MLFLOW_TRACKING_URI` / `MLFLOW_EXPERIMENT_NAME`.
 ## Docker
 Run the entire app in a container with no local setup required:
 ```bash
-cp .env.example .env   # add your OPENAI_API_KEY
 docker compose up --build
 ```
 Open `http://localhost:8501` in your browser. The corpus and index are persisted in `data/` via a volume mount, so they survive container restarts.
@@ -135,72 +112,6 @@ Tests and experiment tracking need the dev dependencies (pytest, mlflow):
 pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
-
-## Deploy (Streamlit Community Cloud)
-The app is deployment-ready and self-bootstraps: on first run it builds the
-retrieval index from the corpus shipped in `data/raw/` if no prebuilt index is
-found, so a fresh clone "just works".
-
-1. Push the repo to GitHub (public repo = free hosting).
-2. Go to [share.streamlit.io](https://share.streamlit.io), create an app, and point it at:
-   - **Main file path:** `app/streamlit_app.py`
-   - **Python version:** 3.11
-   - Streamlit installs `requirements.txt` automatically (lean runtime deps only —
-     `mlflow`/`pytest` live in `requirements-dev.txt` and are excluded).
-3. In **Settings → Secrets**, add your key (exposed to the app as an env var):
-   ```toml
-   OPENAI_API_KEY = "sk-..."
-   ```
-   Without it the app still runs in offline extractive mode.
-
-Notes: the first load downloads the embedding model (~130 MB) and builds the
-index, so cold starts take a moment; free apps also sleep after inactivity.
-Keep the cross-encoder **re-rank** toggle off by default to stay within the
-free tier's memory budget (it loads a second model on demand).
-
-## Deploy (Hugging Face Spaces) — no GitHub access required
-Spaces host the app from their *own* git repo on huggingface.co, so no GitHub
-permissions are involved. The YAML header at the top of this README configures
-the Space (`sdk: streamlit`, `app_file: app/streamlit_app.py`, Python 3.11).
-
-```bash
-# 1. Create a Streamlit Space at https://huggingface.co/new-space
-#    (SDK: Streamlit). HF gives you a git URL like:
-#    https://huggingface.co/spaces/<username>/<space-name>
-
-# 2. Push this repo to the Space's git remote
-git remote add hf https://huggingface.co/spaces/<username>/<space-name>
-git push hf main
-```
-
-The Space builds automatically: installs `requirements.txt`, then runs
-`app/streamlit_app.py`, which bootstraps the index from the shipped corpus on
-first launch. To enable LLM generation, add `OPENAI_API_KEY` under
-**Settings → Variables and secrets** (HF exposes secrets as env vars, which the
-app reads automatically). Without it, the app runs in offline mode.
-
-### Embedding the demo on your website
-Embed the app in an `<iframe>`. Use `?embed=true` to hide the Streamlit chrome
-(menu/footer) for a clean inline demo.
-
-```html
-<!-- Hugging Face Space (direct app URL) -->
-<iframe
-  src="https://<username>-<space-name>.hf.space/?embed=true"
-  height="850" width="100%" style="border:none;border-radius:12px;"
-  title="Healthcare Evidence Assistant">
-</iframe>
-
-<!-- or Streamlit Community Cloud -->
-<iframe
-  src="https://YOUR-APP.streamlit.app/?embed=true"
-  height="850" width="100%" style="border:none;border-radius:12px;">
-</iframe>
-```
-
-## To do
-- Add metadata filtering by MeSH terms
-- Expand corpus diversity and the answerable/unanswerable eval sets
 
 ## Responsibility Note
 This project is for educational decision support and not for diagnosis or emergency use. Use source citations and clinician review for all outputs.
