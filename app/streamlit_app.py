@@ -134,6 +134,34 @@ a.cite:hover { background: #C8E2D9; text-decoration: none; }
 .score-fill.dense { background: #5B4B9B; }
 .score-fill.rerank { background: #C9821B; }
 .score-val { width: 46px; text-align: right; font-size: 0.76rem; color: #44524F; }
+
+/* Welcome / empty state */
+.section-label {
+    font-weight: 700; color: #15302C; font-size: 1.05rem;
+    margin: 0.4rem 0 0.5rem 0;
+}
+.feature-grid { display: flex; gap: 1rem; margin-top: 0.2rem; flex-wrap: wrap; }
+.feature-card {
+    flex: 1; min-width: 180px; background: #ffffff; border: 1px solid #E2EAE8;
+    border-top: 4px solid #2E7D6B; border-radius: 12px;
+    padding: 1.1rem 1.2rem; box-shadow: 0 1px 6px rgba(26, 43, 41, 0.04);
+}
+.feature-card .fc-icon { font-size: 1.6rem; line-height: 1; }
+.feature-card h4 { margin: 0.5rem 0 0.3rem 0; color: #15302C; font-size: 1rem; font-weight: 700; }
+.feature-card p { margin: 0; color: #5A6B68; font-size: 0.87rem; line-height: 1.5; }
+.welcome-hint {
+    color: #5A6B68; font-size: 0.92rem; margin: 0.2rem 0 0.9rem 0;
+}
+
+/* Example-question buttons styled as soft chips */
+div[data-testid="stButton"] button[kind="secondary"] {
+    text-align: left; border: 1px solid #D6E3DF; background: #F4F8F7;
+    color: #1F3A35; font-weight: 500; border-radius: 10px;
+    transition: all 0.15s ease;
+}
+div[data-testid="stButton"] button[kind="secondary"]:hover {
+    border-color: #2E7D6B; background: #E8F2EF; color: #1A2B29;
+}
 </style>
 """
 
@@ -331,6 +359,51 @@ def render_evidence(hits) -> None:
         )
 
 
+EXAMPLE_QUESTIONS = [
+    "What is first-line treatment for stage 1 hypertension in adults with diabetes?",
+    "How is stroke risk managed in atrial fibrillation?",
+    "Which antibiotics are recommended for community-acquired pneumonia?",
+    "What is the first-line treatment for major depressive disorder?",
+]
+
+
+def _use_example(question: str) -> None:
+    """Populate the query box with an example and trigger a search on rerun."""
+    st.session_state["question_input"] = question
+    st.session_state["trigger_search"] = True
+
+
+def render_welcome() -> None:
+    """Inviting empty state shown before the first query: examples + how-it-works."""
+    st.markdown('<div class="section-label">💡 Try an example question</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="welcome-hint">Pick one to see grounded, cited evidence in action — '
+        "or type your own clinical question above.</div>",
+        unsafe_allow_html=True,
+    )
+    cols = st.columns(2)
+    for i, q in enumerate(EXAMPLE_QUESTIONS):
+        cols[i % 2].button(
+            q, key=f"example_{i}", on_click=_use_example, args=(q,), use_container_width=True
+        )
+
+    st.markdown(
+        '<div class="section-label" style="margin-top:1.3rem;">How it works</div>'
+        '<div class="feature-grid">'
+        '<div class="feature-card"><div class="fc-icon">🔎</div>'
+        "<h4>Hybrid retrieval</h4><p>Blends keyword (TF-IDF) and semantic "
+        "(embedding) search over PubMed abstracts, fused for the best of both.</p></div>"
+        '<div class="feature-card"><div class="fc-icon">🧾</div>'
+        "<h4>Grounded answers</h4><p>Responses are built only from retrieved "
+        "evidence and cite their sources — or abstain when evidence is thin.</p></div>"
+        '<div class="feature-card"><div class="fc-icon">✅</div>'
+        "<h4>Citation grounding</h4><p>Each claim is checked against the passage "
+        "it cites, so you can see how well-supported every answer is.</p></div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Hero header
 # ---------------------------------------------------------------------------
@@ -416,13 +489,20 @@ with tab_ask:
     # ── Main query area ──────────────────────────────────────────────────────
     question = st.text_input(
         "Ask a clinical question",
-        value="What is first-line treatment for stage 1 hypertension in adults with diabetes?",
         placeholder="e.g. How is atrial fibrillation stroke risk managed?",
+        key="question_input",
     )
 
     run = st.button("Search evidence", type="primary", use_container_width=True)
 
-    if run:
+    # An example-question click sets this flag so we run without a second click.
+    triggered = st.session_state.pop("trigger_search", False)
+    do_search = run or triggered
+
+    if not do_search:
+        if not question.strip():
+            render_welcome()
+    else:
         if not question.strip():
             st.warning("Please enter a question first.")
             st.stop()
