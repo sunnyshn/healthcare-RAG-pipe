@@ -10,3 +10,8 @@ headless = true
 
 [browser]
 gatherUsageStats = false
+
+[client]
+# Hide Python tracebacks/code from the browser; full detail still goes to the
+# server logs. Keeps the deployed demo clean for visitors.
+showErrorDetails = false
