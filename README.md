@@ -1,5 +1,20 @@
+---
+title: Healthcare Evidence Assistant
+emoji: 🩺
+colorFrom: green
+colorTo: blue
+sdk: streamlit
+sdk_version: 1.40.2
+app_file: app/streamlit_app.py
+python_version: "3.11"
+pinned: false
+---
+
 # Healthcare LLM Pipeline Starter
 Starter for a healthcare evidence assistant using retrieval + grounded generation.
+
+> The YAML block above configures Hugging Face Spaces (SDK, entry file, Python
+> version). It's ignored when running locally or on other hosts.
 
 ## Project layout
 - `data/raw/sample_corpus.jsonl`: healthcare corpus (grows as you fetch from PubMed)
@@ -143,16 +158,45 @@ index, so cold starts take a moment; free apps also sleep after inactivity.
 Keep the cross-encoder **re-rank** toggle off by default to stay within the
 free tier's memory budget (it loads a second model on demand).
 
+## Deploy (Hugging Face Spaces) — no GitHub access required
+Spaces host the app from their *own* git repo on huggingface.co, so no GitHub
+permissions are involved. The YAML header at the top of this README configures
+the Space (`sdk: streamlit`, `app_file: app/streamlit_app.py`, Python 3.11).
+
+```bash
+# 1. Create a Streamlit Space at https://huggingface.co/new-space
+#    (SDK: Streamlit). HF gives you a git URL like:
+#    https://huggingface.co/spaces/<username>/<space-name>
+
+# 2. Push this repo to the Space's git remote
+git remote add hf https://huggingface.co/spaces/<username>/<space-name>
+git push hf main
+```
+
+The Space builds automatically: installs `requirements.txt`, then runs
+`app/streamlit_app.py`, which bootstraps the index from the shipped corpus on
+first launch. To enable LLM generation, add `OPENAI_API_KEY` under
+**Settings → Variables and secrets** (HF exposes secrets as env vars, which the
+app reads automatically). Without it, the app runs in offline mode.
+
 ### Embedding the demo on your website
-Streamlit apps can be embedded in an `<iframe>` using the `?embed=true` flag:
+Embed the app in an `<iframe>`. Use `?embed=true` to hide the Streamlit chrome
+(menu/footer) for a clean inline demo.
+
 ```html
+<!-- Hugging Face Space (direct app URL) -->
+<iframe
+  src="https://<username>-<space-name>.hf.space/?embed=true"
+  height="850" width="100%" style="border:none;border-radius:12px;"
+  title="Healthcare Evidence Assistant">
+</iframe>
+
+<!-- or Streamlit Community Cloud -->
 <iframe
   src="https://YOUR-APP.streamlit.app/?embed=true"
-  height="800" width="100%" style="border:none;"
-></iframe>
+  height="850" width="100%" style="border:none;border-radius:12px;">
+</iframe>
 ```
-The `embed=true` parameter hides the Streamlit chrome (menu/footer) for a clean
-inline demo.
 
 ## To do
 - Add metadata filtering by MeSH terms

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import math
 import os
 import re
@@ -360,9 +362,16 @@ with tab_ask:
         )
         st.stop()
 
-    with st.spinner("Loading retrieval index…"):
-        retriever = load_retriever()
-    meta = retriever.tfidf.metadata
+    try:
+        with st.spinner("Loading retrieval index…"):
+            retriever = load_retriever()
+        meta = retriever.tfidf.metadata
+    except Exception:
+        st.error(
+            "⚠️ The assistant couldn't load its knowledge base right now. "
+            "Please refresh the page in a moment."
+        )
+        st.stop()
 
     # ── Sidebar: retrieval settings ──────────────────────────────────────────
     with st.sidebar:
@@ -414,40 +423,52 @@ with tab_ask:
     run = st.button("Search evidence", type="primary", use_container_width=True)
 
     if run:
-        specialty_filter = None if specialty_sel == "(all)" else specialty_sel
-        yr_filter = tuple(year_range) if year_range else None
+        if not question.strip():
+            st.warning("Please enter a question first.")
+            st.stop()
 
-        spinner_msg = "Retrieving + re-ranking evidence…" if rerank else "Retrieving evidence…"
-        with st.spinner(spinner_msg):
-            hits = retriever.search(
-                question,
-                k=top_k,
-                specialty=specialty_filter,
-                year_range=yr_filter,
-                rerank=rerank,
+        try:
+            specialty_filter = None if specialty_sel == "(all)" else specialty_sel
+            yr_filter = tuple(year_range) if year_range else None
+
+            spinner_msg = (
+                "Retrieving + re-ranking evidence…" if rerank else "Retrieving evidence…"
             )
+            with st.spinner(spinner_msg):
+                hits = retriever.search(
+                    question,
+                    k=top_k,
+                    specialty=specialty_filter,
+                    year_range=yr_filter,
+                    rerank=rerank,
+                )
 
-        if not hits:
-            st.warning(
-                "No documents matched the selected filters. Try broadening your criteria."
+            if not hits:
+                st.warning(
+                    "No documents matched the selected filters. Try broadening your criteria."
+                )
+            else:
+                answer_placeholder = st.empty()
+                answer = stream_answer_into(answer_placeholder, question, hits)
+
+                # Citation faithfulness check (reuses the retriever's dense encoder).
+                is_abstain = answer.strip().upper().startswith(ABSTENTION_MARKER.upper())
+                if not is_abstain:
+                    def _embed_fn(texts):
+                        enc = retriever._encoder_model()
+                        return [list(v) for v in enc.embed(list(texts))]
+
+                    with st.spinner("Checking citation grounding…"):
+                        report = check_faithfulness(answer, hits, embed_fn=_embed_fn)
+                    render_grounding(report)
+
+                st.markdown("##### 📄 Retrieved evidence")
+                render_evidence(hits)
+        except Exception:
+            st.error(
+                "⚠️ Sorry — something went wrong while answering that question. "
+                "Please try again or rephrase your query."
             )
-        else:
-            answer_placeholder = st.empty()
-            answer = stream_answer_into(answer_placeholder, question, hits)
-
-            # Citation faithfulness check (reuses the retriever's dense encoder).
-            is_abstain = answer.strip().upper().startswith(ABSTENTION_MARKER.upper())
-            if not is_abstain:
-                def _embed_fn(texts):
-                    enc = retriever._encoder_model()
-                    return [list(v) for v in enc.embed(list(texts))]
-
-                with st.spinner("Checking citation grounding…"):
-                    report = check_faithfulness(answer, hits, embed_fn=_embed_fn)
-                render_grounding(report)
-
-            st.markdown("##### 📄 Retrieved evidence")
-            render_evidence(hits)
 
 
 # =======================  MANAGE CORPUS TAB  ================================
