@@ -34,12 +34,21 @@ st.set_page_config(
 )
 
 # Bridge Streamlit Cloud secrets to env vars so generator.py (which reads
-# os.getenv) works in deployment without code changes. Harmless locally.
-try:
-    if "OPENAI_API_KEY" in st.secrets and not os.getenv("OPENAI_API_KEY"):
-        os.environ["OPENAI_API_KEY"] = str(st.secrets["OPENAI_API_KEY"])
-except Exception:
-    pass  # No secrets.toml configured (local dev) — fall back to .env / env vars.
+# os.getenv) works in deployment without code changes. We only touch
+# st.secrets when a secrets.toml actually exists — otherwise Streamlit surfaces
+# a "No secrets found" error (e.g. on Hugging Face Spaces, where the key, if
+# any, is injected as an environment variable instead).
+if not os.getenv("OPENAI_API_KEY"):
+    _secret_paths = (
+        Path.home() / ".streamlit" / "secrets.toml",
+        ROOT / ".streamlit" / "secrets.toml",
+    )
+    if any(p.exists() for p in _secret_paths):
+        try:
+            if "OPENAI_API_KEY" in st.secrets:
+                os.environ["OPENAI_API_KEY"] = str(st.secrets["OPENAI_API_KEY"])
+        except Exception:
+            pass  # Malformed/empty secrets file — fall back to env vars.
 
 LLM_ENABLED = bool(os.getenv("OPENAI_API_KEY"))
 
