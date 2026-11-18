@@ -26,6 +26,11 @@ COPY --chown=user . .
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
 RUN python -c "from fastembed.rerank.cross_encoder import TextCrossEncoder; TextCrossEncoder(model_name='Xenova/ms-marco-MiniLM-L-6-v2')"
 
+# Build the search index into the image. The index is not in git, and a
+# Space container does not keep the disk from the last run, so building it
+# here keeps startup to a file load instead of a multi-minute rebuild.
+RUN python scripts/ingest.py && python scripts/index.py
+
 EXPOSE 8501
 
 HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health || exit 1

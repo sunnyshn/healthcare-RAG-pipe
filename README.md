@@ -88,6 +88,8 @@ docker compose up --build
 
 Open http://localhost:8501. The library in `data/` stays on your machine when the container stops, and so do the logs in `mlruns/`.
 
+On Hugging Face the search index is built while the Space image is built, so a later wake-up loads that index instead of creating it again. A push that changes the library is the slow build. Opening the app after that is a normal page load.
+
 ## Tests
 
 ```bash
