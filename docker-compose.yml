@@ -9,3 +9,5 @@ services:
       # Persist the corpus and index across container restarts.
       # Matches the container WORKDIR ($HOME/app) used for HF Spaces compatibility.
       - ./data:/home/user/app/data
+      # Persist live RAG health runs (MLflow) across container restarts.
+      - ./mlruns:/home/user/app/mlruns

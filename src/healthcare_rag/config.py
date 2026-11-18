@@ -32,4 +32,6 @@ RERANK_CANDIDATES = 20
 # root; override with the MLFLOW_TRACKING_URI env var (e.g. a remote server).
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", (PROJECT_ROOT / "mlruns").as_uri())
 MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "healthcare-rag-eval")
+# Live query health (separate from offline eval runs).
+MLFLOW_HEALTH_EXPERIMENT = os.getenv("MLFLOW_HEALTH_EXPERIMENT", "healthcare-rag-health")
 

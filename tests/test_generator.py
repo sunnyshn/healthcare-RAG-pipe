@@ -96,12 +96,14 @@ class TestGenerateAnswerOffline:
         hits = [_make_hit(score_dense=LOW_EVIDENCE_THRESHOLD + 0.05)]
         answer = generate_answer("relevant question", hits)
         assert not answer.upper().startswith(ABSTENTION_MARKER.upper())
-        assert "Top evidence" in answer
+        assert "[1]" in answer
 
-    def test_abstention_mentions_threshold(self):
+    def test_abstention_is_visitor_facing(self):
         hits = [_make_hit(score_dense=0.50)]
         answer = generate_answer("off-topic question", hits)
-        assert str(LOW_EVIDENCE_THRESHOLD) in answer
+        assert "close match" in answer
+        assert "API" not in answer
+        assert "threshold" not in answer.lower()
 
     def test_extractive_baseline_includes_titles(self):
         hits = [
@@ -111,6 +113,37 @@ class TestGenerateAnswerOffline:
         answer = generate_answer("question", hits)
         assert "Study Alpha" in answer
         assert "Study Beta" in answer
+
+    def test_cites_close_passages_and_skips_a_weak_one(self):
+        hits = [
+            _make_hit(title="Study Alpha", score_dense=0.90, text="ACE inhibitors help."),
+            _make_hit(
+                title="Study Beta",
+                doc_id="d2",
+                score_dense=0.86,
+                text="ARBs are an alternative.",
+            ),
+            _make_hit(
+                title="Off Topic",
+                doc_id="d3",
+                score_dense=0.70,
+                text="Unrelated aspergillosis findings.",
+            ),
+        ]
+        answer = generate_answer("question", hits)
+        assert "[1]" in answer
+        assert "[2]" in answer
+        assert "[3]" not in answer
+        assert "Off Topic" not in answer
+
+    def test_visitor_view_hides_the_eval_token(self):
+        from healthcare_rag.generator import for_visitors
+
+        hits = [_make_hit(score_dense=0.50)]
+        shown = for_visitors(generate_answer("off-topic question", hits))
+        assert ABSTENTION_MARKER not in shown
+        assert "close match" in shown
+        assert "won't guess" in shown
 
 
 # ── generate_answer (with mocked OpenAI) ─────────────────────────────────────
@@ -215,6 +248,21 @@ class TestStreamAnswerLLM:
         assert full == "ACE inhibitors are recommended [1]."
         call_kwargs = mock_client_instance.chat.completions.create.call_args.kwargs
         assert call_kwargs["stream"] is True
+
+    def test_api_failure_falls_back_without_raising(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key-fake")
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create.side_effect = RuntimeError(
+            "Incorrect API key provided"
+        )
+        with patch(
+            "healthcare_rag.generator.openai.OpenAI",
+            create=True,
+            return_value=mock_client_instance,
+        ):
+            answer = "".join(stream_answer("question", [_make_hit(score_dense=0.9)]))
+        assert "API" not in answer
+        assert "[1]" in answer
 
     def test_handles_chunk_without_choices(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "test-key-fake")

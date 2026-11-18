@@ -1,8 +1,8 @@
 [theme]
-primaryColor = "#2E7D6B"
-backgroundColor = "#FBFCFC"
-secondaryBackgroundColor = "#F0F4F3"
-textColor = "#1A2B29"
+primaryColor = "#1F6B5A"
+backgroundColor = "#F6F4F0"
+secondaryBackgroundColor = "#EFECE6"
+textColor = "#1C2422"
 font = "sans serif"
 
 [server]
@@ -14,4 +14,4 @@ gatherUsageStats = false
 [client]
 # Hide Python tracebacks/code from the browser; full detail still goes to the
 # server logs. Keeps the deployed demo clean for visitors.
-showErrorDetails = false
+showErrorDetails = "none"

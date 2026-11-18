@@ -3,115 +3,111 @@ sdk: docker
 app_port: 8501
 ---
 
-# Healthcare LLM Pipeline Starter
-Starter for a healthcare evidence assistant using retrieval + grounded generation.
+# Healthcare Evidence Assistant
 
-> The YAML block above configures Hugging Face Spaces (Docker SDK + app port).
-> HF deprecated the native Streamlit SDK, so the app ships as a Docker Space via
-> the included `Dockerfile`. The block is ignored when running locally.
+A small demo that answers clinical questions from a library of PubMed abstracts. The reply points at the passages it used, and those links open the paper when we have one. If the library does not have a close match, the app says so instead of guessing.
 
-## Project layout
-- `data/raw/sample_corpus.jsonl`: healthcare corpus (grows as you fetch from PubMed)
-- `scripts/fetch_pubmed.py`: fetch PubMed abstracts and append to corpus
-- `scripts/ingest.py`: loads and cleans raw corpus into tabular format
-- `scripts/index.py`: builds hybrid retrieval index (`data/index/hybrid_index.pkl`; downloads `BAAI/bge-small-en-v1.5` via FastEmbed on first run)
-- `scripts/query.py`: CLI query for Q&A with citations (add `--rerank` for cross-encoder re-ranking)
-- `scripts/eval.py`: retrieval eval with recall@1 and recall@3
-- `app/streamlit_app.py`: local web demo (streaming answers, clickable PubMed citations, live grounding check)
-- `src/healthcare_rag/`: package code (retriever, reranker, generator, faithfulness, data I/O, config)
+It is for learning and for showing how answers can stay tied to sources. It is not for diagnosis or emergency care.
 
-## How retrieval works
-1. **Stage 1 — hybrid retrieval.** A TF-IDF (lexical) and a dense embedding
-   (semantic) retriever each rank the corpus; their rankings are merged with
-   Reciprocal Rank Fusion (RRF).
-2. **Stage 2 — cross-encoder re-ranking (optional).** With `--rerank`, the
-   hybrid stage returns a wider candidate pool (`RERANK_CANDIDATES`, default 20)
-   and a cross-encoder (`Xenova/ms-marco-MiniLM-L-6-v2`) scores each
-   (query, passage) pair *jointly* to reorder the final top-k. This trades a
-   little latency for more precise top results.
-3. **Grounded generation.** The LLM answers strictly from the retrieved
-   passages and abstains when evidence is insufficient.
-4. **Citation faithfulness (eval + UI).** Each `[n]` citation in the answer is
-   checked against the passage it points to using the dense encoder: we report
-   how many claims are cited (coverage), how many citations are actually
-   on-topic (support), and any citations pointing to a passage that wasn't
-   retrieved (invalid). Embedding similarity is a proxy for support, not a
-   formal entailment check.
+The live demo is at [sunnyshn-healthcare-diagnostic-assistant.hf.space](https://sunnyshn-healthcare-diagnostic-assistant.hf.space).
 
-## Expand the corpus with PubMed
-```bash
-# Fetch abstracts by topic and specialty
-python scripts/fetch_pubmed.py --query "type 2 diabetes management" --max 50 --specialty endocrinology
-python scripts/fetch_pubmed.py --query "atrial fibrillation anticoagulation" --max 50 --specialty cardiology
-python scripts/fetch_pubmed.py --query "major depressive disorder treatment" --max 50 --specialty psychiatry
-python scripts/fetch_pubmed.py --query "community acquired pneumonia antibiotics" --max 50 --specialty "infectious disease"
+The few lines at the top of this file tell Hugging Face Spaces how to start the app. You can ignore them when you run the project on your own computer.
 
-# Rebuild the index after fetching
-python scripts/ingest.py
-python scripts/index.py
-```
+## What you can do in the app
 
-## Run pipeline
+- **Ask.** Type a question, or try one of the examples. The answer cites the passages it used.
+- **Model monitoring.** After a question, this tab shows how the visit is going: how long answers take, how often the app declines, and whether the citations match the text. The question itself is not saved. The charts belong to this visit, and a refresh starts a new sample.
+- **Corpus.** See what is in the library, fetch more abstracts, and rebuild the search index.
+
+## How an answer is made
+
+1. **Search.** The app looks for passages by the words in your question and by meaning, then blends the two lists.
+2. **A closer read.** A second pass reads the question together with each promising passage and keeps the closest ones. This is on by default. Turn it off in the sidebar for a faster, rougher search.
+3. **A careful reply.** The answer is written only from what was found. When nothing is close enough, the app declines.
+4. **A citation check.** Each numbered citation is compared with the passage it points to, so you can see whether that source really fits the sentence.
+
+## Run it on your computer
+
 ```bash
 python scripts/ingest.py
 python scripts/index.py
-python scripts/query.py --question "What is first-line treatment for stage 1 hypertension with diabetes?"
-
-# Add cross-encoder re-ranking for more precise top results
-python scripts/query.py --question "diabetes drug options" --rerank
-
-# Filter by specialty or year range
-python scripts/query.py --question "diabetes drug options" --specialty endocrinology --year_min 2020
-
-python scripts/eval.py            # retrieval recall + abstention + citation faithfulness
-python scripts/eval.py --rerank   # same metrics with cross-encoder re-ranking
 streamlit run app/streamlit_app.py
 ```
 
-## Ingest with chunking (for long documents)
+The first index build downloads a small search model and can take a few minutes. Then open http://localhost:8501.
+
+You can ask from the terminal too:
+
+```bash
+python scripts/query.py --question "What is first-line treatment for stage 1 hypertension with diabetes?"
+python scripts/query.py --question "diabetes drug options" --specialty endocrinology --year_min 2020
+```
+
+## Add more abstracts
+
+Pick a topic and a specialty label, then rebuild the index so the new papers are searchable.
+
+```bash
+python scripts/fetch_pubmed.py --query "type 2 diabetes management" --max 50 --specialty endocrinology
+python scripts/ingest.py
+python scripts/index.py
+```
+
+Labels already in the library include cardiology, psychiatry, endocrinology, infectious disease, and general.
+
+For a long paper, split it into overlapping pieces before indexing:
+
 ```bash
 python scripts/ingest.py --chunk --chunk-size 450 --overlap 75
 python scripts/index.py
 ```
 
-## Experiment tracking with MLflow
-Every `eval.py` run logs its config (params) and scores (metrics) to MLflow so
-you can compare runs, e.g. re-ranking on vs off:
+## Looking at quality over time
+
+`scripts/eval.py` asks a fixed set of questions and saves the scores, so you can see whether a change helped.
+
 ```bash
-python scripts/eval.py                       # logs run "baseline"
-python scripts/eval.py --rerank              # logs run "rerank"
-python scripts/eval.py --no-mlflow           # skip logging
-python scripts/eval.py --run-name my-experiment
-
-# Browse runs in the MLflow UI
+python scripts/eval.py
+python scripts/eval.py --rerank
 mlflow ui --backend-store-uri ./mlruns
-# then open http://localhost:5000
 ```
-Logged **params**: rerank on/off, top-k, embedding/rerank model, thresholds,
-generation mode, corpus size. Logged **metrics**: recall@1, recall@3,
-abstention rate, citation coverage/support, invalid-citation rate, mean
-support. The eval CSV is attached as a run artifact. Override the tracking
-location with `MLFLOW_TRACKING_URI` / `MLFLOW_EXPERIMENT_NAME`.
 
-## Docker
-Run the entire app in a container with no local setup required:
+Open http://localhost:5000 to browse those runs. Add `--no-mlflow` to skip the log, or `--run-name my-experiment` to name it.
+
+Model monitoring in the app is a separate log of live questions. To pause it:
+
+```bash
+MLFLOW_MONITOR=0 streamlit run app/streamlit_app.py
+```
+
+## Run it with Docker
+
 ```bash
 docker compose up --build
 ```
-Open `http://localhost:8501` in your browser. The corpus and index are persisted in `data/` via a volume mount, so they survive container restarts.
 
-To run the tests inside Docker (installs dev deps into the container first):
-```bash
-docker compose run --rm app sh -c "pip install -r requirements-dev.txt && python -m pytest tests/ -v"
-```
+Open http://localhost:8501. The library in `data/` stays on your machine when the container stops, and so do the logs in `mlruns/`.
 
 ## Tests
-Tests and experiment tracking need the dev dependencies (pytest, mlflow):
+
 ```bash
 pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-## Responsibility Note
-This project is for educational decision support and not for diagnosis or emergency use. Use source citations and clinician review for all outputs.
+Inside Docker:
 
+```bash
+docker compose run --rm app sh -c "pip install -r requirements-dev.txt && python -m pytest tests/ -v"
+```
+
+## Where things live
+
+- `app/streamlit_app.py` is the demo.
+- `data/raw/sample_corpus.jsonl` is the library of abstracts.
+- `scripts/` fetches papers, builds the index, and asks from the terminal.
+- `src/healthcare_rag/` is the code behind the app.
+
+## A note on use
+
+Read the cited sources, and have a clinician review anything that would affect care. This project is educational decision support, not a diagnostic tool, and it is not for emergencies.

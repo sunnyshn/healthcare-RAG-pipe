@@ -172,8 +172,10 @@ class HybridRetriever:
         tfidf = TfidfRetriever.build(docs)
         encoder = TextEmbedding(model_name=embedding_model_name)
         # BGE retrieval: passage vs query prefixes (see model card).
+        # One worker and a small batch: the default pool loads a model copy
+        # per core and was killed for lack of memory on a few hundred passages.
         passages = [f"passage: {t}" for t in docs["text"].tolist()]
-        emb = list(encoder.embed(passages))
+        emb = list(encoder.embed(passages, batch_size=8, parallel=1))
         stacked = np.stack([np.asarray(e, dtype=np.float64) for e in emb], axis=0)
         return cls(
             tfidf=tfidf,
