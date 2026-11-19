@@ -18,7 +18,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from healthcare_rag.config import INDEX_PATH, PROCESSED_PATH, RAW_PATH
 from healthcare_rag.data_io import normalize_documents, read_jsonl
 from healthcare_rag.faithfulness import check_faithfulness
-from healthcare_rag.generator import ABSTENTION_MARKER, for_visitors, stream_answer
+from healthcare_rag.generator import (
+    ABSTENTION_MARKER,
+    _passages_to_cite,
+    for_visitors,
+    stream_answer,
+)
 from healthcare_rag.monitoring import (
     QueryHealth,
     health_alerts,
@@ -217,6 +222,43 @@ div[data-testid="stButton"] > button[kind="primary"]:hover {
     border-bottom: 1px solid rgba(28, 74, 54, 0.4);
 }
 a.cite:hover { border-bottom-color: #1C4A36; }
+.answer-intro {
+    margin: 0 0 0.85rem;
+    color: rgba(22, 48, 40, 0.68);
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
+.findings { display: flex; flex-direction: column; gap: 0.7rem; }
+.finding {
+    background: rgba(255, 255, 255, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.78);
+    border-radius: 16px;
+    padding: 0.85rem 1rem 0.95rem;
+}
+.finding-kicker {
+    font-size: 0.72rem;
+    font-weight: 650;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(22, 48, 40, 0.52);
+}
+a.finding-title, a.finding-title:visited {
+    display: block;
+    margin: 0.28rem 0 0.4rem;
+    font-size: 1.12rem;
+    font-weight: 650;
+    letter-spacing: -0.03em;
+    line-height: 1.25;
+    color: #12261E !important;
+    text-decoration: none;
+}
+a.finding-title:hover { color: #1C4A36 !important; }
+.finding-lead {
+    margin: 0;
+    color: rgba(22, 48, 40, 0.86);
+    font-size: 0.98rem;
+    line-height: 1.5;
+}
 .type-cursor {
     display: inline-block; margin-left: 1px; color: #1C4A36;
     animation: blink 1s step-start infinite;
@@ -395,17 +437,122 @@ def _format_citations(text: str, hits=None) -> str:
     return safe.replace("\n", "<br>")
 
 
+def _escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _finding_headline(title: str) -> tuple[str, str]:
+    """Split a paper title into a short kind label and the subject a reader scans first."""
+    clean = " ".join(title.replace("\n", " ").split()).strip().rstrip(".")
+    prefix_rules = (
+        (r"clinical practice guidelines?\s*:\s*", "Guideline"),
+        (r"practice guidelines?\s*:\s*", "Guideline"),
+        (r"(?:clinical )?guidelines?\s*:\s*", "Guideline"),
+        (r"systematic reviews?\s*:\s*", "Review"),
+        (r"reviews?\s*:\s*", "Review"),
+    )
+    for pattern, kind in prefix_rules:
+        match = re.match(pattern, clean, flags=re.IGNORECASE)
+        if match and clean[match.end() :].strip(" ."):
+            return kind, clean[match.end() :].strip(" .")
+    suffix_rules = (
+        (r"\s*:\s*a systematic review(?: and meta-analysis)?$", "Review"),
+        (r"\s*:\s*a (?:narrative |clinical )?review$", "Review"),
+        (r"\s*:\s*systematic review$", "Review"),
+    )
+    for pattern, kind in suffix_rules:
+        match = re.search(pattern, clean, flags=re.IGNORECASE)
+        if match and clean[: match.start()].strip(" ."):
+            return kind, clean[: match.start()].strip(" .")
+    if re.search(r"\bguideline\b", clean, flags=re.IGNORECASE):
+        return "Guideline", clean
+    if re.search(r"\breview\b", clean, flags=re.IGNORECASE):
+        return "Review", clean
+    return "Study", clean
+
+
+def _lead_sentence(text: str) -> str:
+    """One sentence a reader can scan. Skip a methods opening when the next sentence says more."""
+    flat = " ".join(text.split())
+    flat = re.sub(
+        r"^(background|objective|purpose|introduction|summary)\s*[:.\-]\s*",
+        "",
+        flat,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    sentences = [
+        part.strip()
+        for part in re.split(r"(?<=[.!?])\s+(?=[A-Z])", flat)
+        if part.strip()
+    ]
+    if not sentences:
+        return ""
+    methods_open = re.compile(
+        r"^(we |this (study|review|article|paper|guideline)|"
+        r"the (aim|purpose|objective|goal)|"
+        r"to (review|evaluate|assess|determine|examine|summarize|investigate))",
+        flags=re.IGNORECASE,
+    )
+    chosen = sentences[0]
+    if methods_open.match(chosen) and len(sentences) > 1:
+        chosen = sentences[1]
+    if len(chosen) > 260:
+        chosen = chosen[:259].rstrip() + "…"
+    return chosen
+
+
+def _findings_html(hits) -> str:
+    """Scannable answer: kind, subject, and one sentence per cited passage."""
+    blocks = []
+    for index, hit in enumerate(_passages_to_cite(hits), start=1):
+        kind, headline = _finding_headline(hit.title)
+        lead = _lead_sentence(hit.text)
+        url = _source_url(hit)
+        kicker_bits = [str(index), kind]
+        if hit.specialty:
+            kicker_bits.append(hit.specialty)
+        title_html = _escape(headline)
+        if url:
+            title_html = (
+                f'<a class="finding-title" href="{url}" target="_blank" rel="noopener">'
+                f"{title_html}</a>"
+            )
+        else:
+            title_html = f'<div class="finding-title">{title_html}</div>'
+        lead_html = f'<p class="finding-lead">{_escape(lead)}</p>' if lead else ""
+        blocks.append(
+            '<article class="finding">'
+            f'<div class="finding-kicker">{" · ".join(kicker_bits)}</div>'
+            f"{title_html}{lead_html}</article>"
+        )
+    intro = (
+        '<p class="answer-intro">Each match leads with the subject and one sentence from the paper. '
+        "The full abstract follows.</p>"
+    )
+    return intro + f'<div class="findings">{"".join(blocks)}</div>'
+
+
 def _answer_card_html(answer: str, hits=None, streaming: bool = False) -> str:
     is_abstain = (
         not streaming
         and answer.strip().upper().startswith(ABSTENTION_MARKER.upper())
     )
     cls = "answer-card abstain" if is_abstain else "answer-card"
-    if streaming:
+    visitor = for_visitors(answer)
+    outlined = bool(hits) and visitor.lstrip().startswith("Closest matches.")
+    if streaming and not outlined:
         heading = "Writing"
+    elif is_abstain:
+        heading = "No close match"
+    elif outlined:
+        heading = "Closest matches"
     else:
-        heading = "No close match" if is_abstain else "Answer"
-    body = _format_citations(for_visitors(answer), hits)
+        heading = "Answer"
+    if outlined:
+        body = _findings_html(hits)
+    else:
+        body = _format_citations(visitor, hits)
     cursor = '<span class="type-cursor">▌</span>' if streaming else ""
     return (
         f'<div class="{cls}"><div class="eyebrow" style="margin-bottom:0.45rem;">{heading}</div>'
