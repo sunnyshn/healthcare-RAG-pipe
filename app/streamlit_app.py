@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import os
 import re
 import sys
@@ -41,7 +40,7 @@ import fetch_pubmed as fp
 
 st.set_page_config(
     page_title="Healthcare Evidence Assistant",
-    page_icon="🩺",
+    page_icon="✚",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -71,222 +70,264 @@ LLM_ENABLED = bool(os.getenv("OPENAI_API_KEY"))
 # ---------------------------------------------------------------------------
 
 CUSTOM_CSS = """
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,640&family=Source+Sans+3:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap">
 <style>
 html, body, .stApp, [class*="css"] {
-    font-family: "Source Sans 3", "Segoe UI", sans-serif;
+    font-family: "Figtree", "Segoe UI", sans-serif;
+    color: #163028;
 }
-h1, h2, h3, h4, [data-testid="stHeading"] h1,
-[data-testid="stHeading"] h2, [data-testid="stHeading"] h3,
-.hero h1, .stat-value, .section-label, .feature-card h4 {
-    font-family: "Newsreader", Georgia, serif;
-    font-optical-sizing: auto;
-    /* Display cut of Newsreader. The small optical size looks vertically compressed at heading sizes. */
-    font-variation-settings: "opsz" 72, "wght" 560;
-    letter-spacing: 0;
-    line-height: 1.35;
+.stApp {
+    background:
+        radial-gradient(980px 720px at 0% -4%, rgba(58, 132, 90, 0.92), transparent 58%),
+        radial-gradient(900px 720px at 100% 108%, rgba(255, 248, 236, 0.96), transparent 54%),
+        radial-gradient(620px 460px at 72% 6%, rgba(168, 204, 164, 0.75), transparent 58%),
+        linear-gradient(152deg, #4f946c 0%, #9ec8ae 36%, #dcead6 64%, #f7f3ea 100%);
+    background-attachment: fixed;
+}
+h1, h2, h3, h4, .hero h1, .stat-value, .section-label, .feature-card h4,
+[data-testid="stHeading"] h1, [data-testid="stHeading"] h2, [data-testid="stHeading"] h3 {
+    font-family: "Figtree", "Segoe UI", sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+    line-height: 1.15;
+    color: #12261E;
+}
+p, li, label, .stMarkdown, .stCaption { color: rgba(22, 48, 40, 0.78); }
+
+.block-container {
+    background: rgba(255, 252, 246, 0.58);
+    backdrop-filter: blur(22px) saturate(140%);
+    -webkit-backdrop-filter: blur(22px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 32px;
+    box-shadow: 0 24px 60px rgba(40, 72, 52, 0.1);
+    padding: 1.8rem 2rem 2.4rem;
+    margin-top: 1.15rem;
+    max-width: 1040px;
+}
+footer, #MainMenu, .stDeployButton, [data-testid="stToolbar"], [data-testid="stDecoration"] {
+    display: none !important;
+    visibility: hidden;
+    height: 0;
+}
+header[data-testid="stHeader"] { background: transparent; height: 0; }
+
+section[data-testid="stSidebar"] { background: transparent !important; }
+[data-testid="stSidebarContent"] {
+    background: rgba(255, 252, 246, 0.52);
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 28px;
+    margin: 14px 8px 14px 14px;
+    box-shadow: 0 24px 60px rgba(40, 72, 52, 0.1);
 }
 
-.block-container { padding-top: 1.6rem; padding-bottom: 3.5rem; max-width: 1080px; }
-footer { visibility: hidden; }
-header[data-testid="stHeader"] { background: transparent; }
-
-section[data-testid="stSidebar"] {
-    background: #EFECE6;
-    border-right: 1px solid #E4DFD6;
-}
-section[data-testid="stSidebar"] h1,
-section[data-testid="stSidebar"] h2 {
-    font-size: 1.35rem;
-}
-
-/* Tabs */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 1.25rem;
-    border-bottom: 1px solid #E3DDD3;
+    gap: 0.4rem;
+    border-bottom: 1px solid rgba(22, 48, 40, 0.12);
     background: transparent;
 }
 .stTabs [data-baseweb="tab"] {
     background: transparent;
-    padding: 0.55rem 0.1rem 0.7rem;
-    font-size: 0.78rem;
-    font-weight: 600;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #6E675E;
+    height: auto;
+    padding: 0.4rem 0.85rem 0.7rem;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: rgba(22, 48, 40, 0.55);
 }
 .stTabs [aria-selected="true"] {
-    color: #1C2422;
-    border-bottom: 2px solid #1F6B5A;
+    color: #12261E;
+    font-weight: 600;
+    border-bottom: 2px solid #1F6B4A;
 }
 
-/* Inputs and buttons */
-.stTextInput input, .stNumberInput input, .stSelectbox div[data-baseweb="select"] > div {
-    border-radius: 10px !important;
-    border-color: #DDD6CB !important;
-    background: #FFFcf8 !important;
+.stTextInput input, .stNumberInput input, .stTextArea textarea,
+.stSelectbox div[data-baseweb="select"] > div {
+    border-radius: 14px !important;
+    border: 1px solid rgba(22, 48, 40, 0.12) !important;
+    background: rgba(255, 255, 255, 0.72) !important;
+    color: #163028 !important;
 }
-.stTextInput input { padding-top: 0.65rem; padding-bottom: 0.65rem; }
-div[data-testid="stButton"] > button {
-    border-radius: 10px;
-    font-weight: 600;
-    letter-spacing: 0.01em;
+.stTextInput input { padding-top: 0.75rem; padding-bottom: 0.75rem; font-size: 1rem; }
+.stTextInput input::placeholder { color: rgba(22, 48, 40, 0.42); }
+.stTextInput input:focus {
+    border-color: rgba(31, 107, 74, 0.45) !important;
+    box-shadow: 0 0 0 3px rgba(31, 107, 74, 0.12);
 }
+div[data-testid="stButton"] > button { border-radius: 999px; font-weight: 600; }
 div[data-testid="stButton"] > button[kind="primary"] {
-    background: #1F6B5A;
-    border: 1px solid #1F6B5A;
-    color: #F7F4EE;
+    background: rgba(26, 36, 32, 0.88);
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 10px 24px rgba(22, 36, 30, 0.1);
+    color: #F7F3EA;
+}
+div[data-testid="stButton"] > button[kind="primary"] * {
+    color: #F7F3EA !important;
+    background: transparent !important;
 }
 div[data-testid="stButton"] > button[kind="primary"]:hover {
-    background: #185647;
-    border-color: #185647;
+    background: rgba(34, 46, 42, 0.92);
+    border-color: rgba(255, 255, 255, 0.4);
 }
 
-/* Hero */
-.hero {
-    padding: 0.2rem 0 1.15rem 0;
-    margin-bottom: 0.4rem;
-    border-bottom: 1px solid #E3DDD3;
-}
+.hero { padding: 0.35rem 0 1.35rem; }
 .eyebrow {
-    font-family: "Source Sans 3", sans-serif;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: #1F6B5A;
-    margin: 0 0 0.45rem 0;
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: rgba(22, 48, 40, 0.62);
+    margin: 0 0 0.55rem;
 }
 .hero h1 {
-    color: #1C2422;
-    font-size: 2.55rem;
-    font-weight: 560;
-    line-height: 1.28;
-    margin: 0 0 0.55rem 0;
-    padding: 0.08em 0 0.12em 0;
+    font-size: 2.7rem;
+    font-weight: 650;
+    letter-spacing: -0.045em;
+    line-height: 1.05;
+    margin: 0 0 0.7rem;
+    max-width: 16ch;
+    color: #12261E;
 }
-.hero p { color: #5C564E; font-size: 1.05rem; line-height: 1.5; margin: 0; max-width: 42rem; }
+.hero p {
+    color: rgba(22, 48, 40, 0.78);
+    font-size: 1.05rem;
+    line-height: 1.55;
+    margin: 0;
+    max-width: 38rem;
+}
 
-/* Answer card */
 .answer-card {
-    background: #FFFcf8; border: 1px solid #E6E0D6; border-left: 5px solid #1F6B5A;
-    border-radius: 12px; padding: 1.3rem 1.5rem; margin: 0.4rem 0 1.2rem 0;
-    box-shadow: 0 2px 10px rgba(26, 43, 41, 0.05);
-    font-size: 1.02rem; line-height: 1.6; color: #1A2B29;
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 22px;
+    padding: 1.25rem 1.35rem 1.3rem;
+    margin: 0.7rem 0 1.3rem;
+    font-size: 1.02rem;
+    line-height: 1.65;
+    color: #163028;
 }
-.answer-card.abstain { border-left-color: #C9821B; background: #FFF9F0; }
-
-/* Inline citation chips like [1], [2] inside the answer */
+.answer-card.abstain { background: rgba(255, 214, 170, 0.45); border-color: rgba(196, 137, 58, 0.28); }
 .answer-card .cite {
-    background: #E0EFEA; color: #226152; border-radius: 6px;
-    padding: 0 0.32rem; font-weight: 600; font-size: 0.9em;
+    color: #1C4A36;
+    font-weight: 650;
+    font-size: 0.86em;
     text-decoration: none;
+    border-bottom: 1px solid rgba(28, 74, 54, 0.4);
 }
-a.cite:hover { background: #C8E2D9; text-decoration: none; }
-
-/* Blinking caret while the answer streams in */
+a.cite:hover { border-bottom-color: #1C4A36; }
 .type-cursor {
-    display: inline-block; margin-left: 1px; color: #2E7D6B;
-    animation: blink 1s step-start infinite; font-weight: 700;
+    display: inline-block; margin-left: 1px; color: #1C4A36;
+    animation: blink 1s step-start infinite;
 }
 @keyframes blink { 50% { opacity: 0; } }
 
-/* Linked evidence title */
-.ev-title-link {
-    font-weight: 650; color: #15302C; font-size: 1.02rem; text-decoration: none;
+.ev {
+    display: grid;
+    grid-template-columns: 2.2rem 1fr;
+    gap: 0.2rem 0.8rem;
+    padding: 1.05rem 0.15rem;
+    border-top: 1px solid rgba(22, 48, 40, 0.1);
 }
-.ev-title-link:hover { color: #2E7D6B; text-decoration: underline; }
+.ev-num { font-size: 0.95rem; color: rgba(22, 48, 40, 0.42); padding-top: 0.2rem; }
+.ev-title, .ev-title-link {
+    font-weight: 600;
+    color: #12261E;
+    font-size: 1.08rem;
+    line-height: 1.35;
+    letter-spacing: -0.02em;
+    text-decoration: none;
+}
+.ev-title-link:hover { color: #1C4A36; }
+.ev-meta { color: rgba(22, 48, 40, 0.62); font-size: 0.84rem; margin: 0.25rem 0 0.5rem; }
+.ev-meta a { color: #1C4A36; text-decoration: none; border-bottom: 1px solid rgba(28, 74, 54, 0.35); }
+.ev-text { color: rgba(22, 48, 40, 0.84); font-size: 0.95rem; line-height: 1.6; margin: 0; }
+.ev-scores { margin-top: 0.5rem; color: rgba(22, 48, 40, 0.5); font-size: 0.78rem; }
 
-/* Evidence card */
-.ev-card {
-    background: #FFFcf8; border: 1px solid #E6E0D6; border-radius: 14px;
-    padding: 1rem 1.2rem; margin-bottom: 0.85rem;
-    box-shadow: 0 1px 6px rgba(26, 43, 41, 0.04);
-}
-.ev-head { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
-.ev-num {
-    background: #1F6B5A; color: #fff; border-radius: 6px;
-    padding: 0.05rem 0.5rem; font-weight: 700; font-size: 0.85rem;
-}
-.ev-title { font-weight: 650; color: #15302C; font-size: 1.02rem; }
-.ev-meta { color: #6B7C79; font-size: 0.82rem; margin: 0.35rem 0 0.5rem 0; }
-.ev-text { color: #2B3D3A; font-size: 0.92rem; line-height: 1.55; }
-
-/* Badges */
-.badge {
-    display: inline-block; padding: 0.12rem 0.55rem; border-radius: 999px;
-    font-size: 0.74rem; font-weight: 600; margin-right: 0.3rem;
-}
-.badge-spec { background: #E0EFEA; color: #226152; }
-.badge-year { background: #EDEAF6; color: #5B4B9B; }
-
-/* Score bars */
-.score-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.3rem; }
-.score-label { width: 92px; font-size: 0.76rem; color: #6B7C79; }
-.score-track {
-    flex: 1; height: 7px; background: #EDF1F0; border-radius: 999px; overflow: hidden;
-}
-.score-fill { height: 100%; border-radius: 999px; }
-.score-fill.sparse { background: #6FB1A0; }
-.score-fill.dense { background: #5B4B9B; }
-.score-fill.rerank { background: #C9821B; }
-.score-val { width: 46px; text-align: right; font-size: 0.76rem; color: #44524F; }
-
-/* Welcome / empty state */
 .section-label {
-    font-weight: 560; color: #1C2422; font-size: 1.45rem;
-    line-height: 1.35; margin: 0.35rem 0 0.45rem 0;
+    font-weight: 600;
+    color: #12261E;
+    font-size: 1.45rem;
+    letter-spacing: -0.03em;
+    margin: 0.15rem 0 0.3rem;
 }
-.feature-grid { display: flex; gap: 0.85rem; margin-top: 0.35rem; flex-wrap: wrap; }
+.feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.85rem; margin-top: 0.35rem; }
 .feature-card {
-    flex: 1; min-width: 190px; background: #FFFcf8; border: 1px solid #E6E0D6;
-    border-radius: 14px; padding: 1.05rem 1.1rem 1.15rem;
+    background: rgba(255, 255, 255, 0.48);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 20px;
+    padding: 1rem 1rem 1.1rem;
 }
-.feature-card .kicker {
-    font-family: "Source Sans 3", sans-serif;
-    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.14em;
-    text-transform: uppercase; color: #1F6B5A;
-}
-.feature-card h4 { margin: 0.4rem 0 0.3rem 0; color: #1C2422; font-size: 1.15rem; font-weight: 560; }
-.feature-card p { margin: 0; color: #5C564E; font-size: 0.92rem; line-height: 1.5; }
-.welcome-hint { color: #6E675E; font-size: 0.95rem; margin: 0 0 0.85rem 0; }
+.feature-card .kicker { font-size: 0.78rem; color: rgba(22, 48, 40, 0.5); }
+.feature-card h4 { margin: 0.3rem 0 0.3rem; font-size: 1.05rem; color: #12261E; }
+.feature-card p { margin: 0; color: rgba(22, 48, 40, 0.74); font-size: 0.9rem; line-height: 1.5; }
+.welcome-hint { color: rgba(22, 48, 40, 0.68); font-size: 0.96rem; margin: 0 0 0.85rem; }
 
 div[data-testid="stButton"] button[kind="secondary"] {
-    text-align: left; border: 1px solid #E3DDD3; background: #FFFcf8;
-    color: #1C2422; font-weight: 500; border-radius: 12px;
-    min-height: 3.1rem; white-space: normal; line-height: 1.35;
+    text-align: left;
+    justify-content: flex-start;
+    border: 1px solid rgba(22, 48, 40, 0.1);
+    background: rgba(255, 255, 255, 0.55);
+    color: #163028;
+    font-weight: 500;
+    border-radius: 16px;
+    min-height: 3.15rem;
+    white-space: normal;
+    line-height: 1.35;
+    padding: 0.7rem 0.95rem;
 }
 div[data-testid="stButton"] button[kind="secondary"]:hover {
-    border-color: #1F6B5A; background: #F3F7F5; color: #14312C;
+    background: rgba(255, 255, 255, 0.82);
+    border-color: rgba(31, 107, 74, 0.28);
+    color: #12261E;
 }
 
-/* Health dashboard */
-.stat-grid { display: flex; gap: 0.75rem; flex-wrap: wrap; margin: 0.35rem 0 1rem 0; }
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin: 0.35rem 0 1.1rem; }
 .stat {
-    flex: 1; min-width: 140px; background: #FFFcf8; border: 1px solid #E6E0D6;
-    border-radius: 14px; padding: 0.85rem 1rem 0.95rem;
+    background: rgba(255, 255, 255, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 20px;
+    padding: 0.85rem 1rem 0.95rem;
 }
 .stat-label {
-    font-family: "Source Sans 3", sans-serif;
-    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em;
-    text-transform: uppercase; color: #6E675E;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgba(22, 48, 40, 0.52);
 }
-.stat-value {
-    font-size: 1.7rem; line-height: 1.35; color: #1C2422; margin-top: 0.28rem;
-}
-.stat-hint { font-size: 0.78rem; color: #8A8278; margin-top: 0.15rem; }
+.stat-value { font-size: 1.7rem; color: #12261E; margin-top: 0.25rem; letter-spacing: -0.04em; }
+.stat-hint { font-size: 0.78rem; color: rgba(22, 48, 40, 0.52); margin-top: 0.15rem; }
 .status {
-    border-radius: 12px; padding: 0.75rem 0.95rem; margin: 0.2rem 0 0.9rem 0;
-    font-size: 0.92rem; line-height: 1.45;
+    border-radius: 16px;
+    padding: 0.7rem 0.9rem;
+    margin: 0.1rem 0 0.85rem;
+    font-size: 0.92rem;
+    line-height: 1.45;
+    border: 1px solid rgba(22, 48, 40, 0.1);
 }
-.status.ok { background: #E7F3EF; color: #16483C; border: 1px solid #C9E4DB; }
-.status.warn { background: #FBF3E6; color: #6A4A12; border: 1px solid #F0DFC2; }
-.chart-card {
-    background: #FFFcf8; border: 1px solid #E6E0D6; border-radius: 14px;
-    padding: 0.35rem 0.5rem 0.15rem; margin-bottom: 0.75rem;
+.status.ok { background: rgba(47, 122, 86, 0.12); color: #14543C; }
+.status.warn { background: rgba(196, 137, 58, 0.16); color: #6A4A16; }
+div[data-testid="stAlert"] {
+    background: rgba(255, 255, 255, 0.62);
+    color: #163028;
+    border: 1px solid rgba(22, 48, 40, 0.1);
+    border-radius: 16px;
 }
-[data-testid="stDataFrame"] { border: 1px solid #E6E0D6; border-radius: 12px; overflow: hidden; }
+[data-testid="stMetric"] {
+    background: rgba(255, 255, 255, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 18px;
+    padding: 0.65rem 0.8rem;
+}
+[data-testid="stDataFrame"] { border: 1px solid rgba(22, 48, 40, 0.1); border-radius: 16px; overflow: hidden; }
 [data-testid="stException"] { display: none !important; }
+@media (max-width: 800px) {
+    .feature-grid, .stat-grid { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2.15rem; }
+    .block-container { border-radius: 22px; padding: 1.2rem 1rem 1.6rem; }
+}
 </style>
 """
 
@@ -354,24 +395,6 @@ def _format_citations(text: str, hits=None) -> str:
     return safe.replace("\n", "<br>")
 
 
-def _score_bar(label: str, value: float, kind: str, fill: float | None = None) -> str:
-    """Render a labeled score bar.
-
-    ``value`` is the number shown on the right; ``fill`` (0-1) controls the bar
-    width. When ``fill`` is None the value itself is clamped to [0, 1] and used.
-    """
-    frac = float(value) if fill is None else float(fill)
-    pct = max(0.0, min(1.0, frac)) * 100
-    return (
-        f'<div class="score-row">'
-        f'<span class="score-label">{label}</span>'
-        f'<span class="score-track"><span class="score-fill {kind}" '
-        f'style="width:{pct:.0f}%"></span></span>'
-        f'<span class="score-val">{value:.2f}</span>'
-        f"</div>"
-    )
-
-
 def _answer_card_html(answer: str, hits=None, streaming: bool = False) -> str:
     is_abstain = (
         not streaming
@@ -437,45 +460,37 @@ def strip_for_display(text: str) -> str:
 
 def render_evidence(hits) -> None:
     for i, h in enumerate(hits, start=1):
-        spec_badge = (
-            f'<span class="badge badge-spec">{h.specialty}</span>' if h.specialty else ""
-        )
-        year_badge = f'<span class="badge badge-year">{h.year}</span>'
         text = h.text[:600] + ("…" if len(h.text) > 600 else "")
         text = text.replace("<", "&lt;").replace(">", "&gt;")
-
-        bars = ""
-        if h.score_sparse is not None and h.score_dense is not None:
-            bars = (
-                _score_bar("keyword", h.score_sparse, "sparse")
-                + _score_bar("semantic", h.score_dense, "dense")
-            )
-        if h.score_rerank is not None:
-            # Cross-encoder scores are logits; squash to [0,1] for the bar width.
-            fill = 1.0 / (1.0 + math.exp(-h.score_rerank))
-            bars += _score_bar("re-rank", h.score_rerank, "rerank", fill=fill)
-
         url = _source_url(h)
         title_safe = h.title.replace("<", "&lt;").replace(">", "&gt;")
         if url:
             title_html = (
                 f'<a class="ev-title-link" href="{url}" target="_blank" '
-                f'rel="noopener">{title_safe} ↗</a>'
+                f'rel="noopener">{title_safe}</a>'
             )
             source_html = f'<a href="{url}" target="_blank" rel="noopener">{h.source}</a>'
         else:
             title_html = f'<span class="ev-title">{title_safe}</span>'
             source_html = h.source
 
+        meta_bits = [bit for bit in (h.specialty, str(h.year) if h.year else "", source_html) if bit]
+        scores = []
+        if h.score_sparse is not None:
+            scores.append(f"Keyword {h.score_sparse:.2f}")
+        if h.score_dense is not None:
+            scores.append(f"Meaning {h.score_dense:.2f}")
+        if h.score_rerank is not None:
+            scores.append(f"Closer read {h.score_rerank:.2f}")
+        score_html = f'<div class="ev-scores">{" · ".join(scores)}</div>' if scores else ""
+
         st.markdown(
-            f'<div class="ev-card">'
-            f'<div class="ev-head"><span class="ev-num">{i}</span>'
-            f"{title_html}</div>"
-            f'<div class="ev-meta">{spec_badge}{year_badge}'
-            f'&nbsp;{source_html} &middot; <code>{h.doc_id}</code> &middot; RRF {h.score:.4f}</div>'
-            f'<div class="ev-text">{text}</div>'
-            f"{bars}"
-            f"</div>",
+            f'<article class="ev">'
+            f'<div class="ev-num">{i:02d}</div>'
+            f"<div>{title_html}"
+            f'<div class="ev-meta">{" · ".join(meta_bits)}</div>'
+            f'<p class="ev-text">{text}</p>'
+            f"{score_html}</div></article>",
             unsafe_allow_html=True,
         )
 
@@ -531,11 +546,10 @@ def render_welcome() -> None:
 
 st.markdown(
     '<div class="hero">'
-    '<div class="eyebrow">Clinical evidence · Retrieval augmented</div>'
+    '<div class="eyebrow">Clinical evidence</div>'
     "<h1>Healthcare Evidence Assistant</h1>"
-    "<p>Answers drawn from PubMed, with citations you can open and a refusal "
-    "when the literature in this corpus does not support a claim. "
-    "Educational decision support — not for diagnosis or emergency use.</p>"
+    "<p>Ask a clinical question. The reply stays with the abstracts it used, "
+    "and it declines when this library has no close match.</p>"
     "</div>",
     unsafe_allow_html=True,
 )
@@ -586,7 +600,7 @@ def _health_chart(df: pd.DataFrame, y: str, title: str, percent: bool = False, u
     if plot.empty:
         return None
     scale = alt.Scale(domain=[0, 1], clamp=True) if (percent or unit_domain) else alt.Scale(zero=True)
-    axis_args = {"grid": True, "gridColor": "#F0EBE3", "domainColor": "#E4DFD6", "labelColor": "#6E675E"}
+    axis_args = {"grid": True, "gridColor": "rgba(22,48,40,0.08)", "domainColor": "rgba(22,48,40,0.16)", "labelColor": "#3E564A"}
     if percent:
         axis_args["format"] = "%"
     axis = alt.Axis(**axis_args)
@@ -596,7 +610,7 @@ def _health_chart(df: pd.DataFrame, y: str, title: str, percent: bool = False, u
         x=alt.X(
             "timestamp:T",
             title=None,
-            axis=alt.Axis(grid=False, tickCount=4, labelColor="#6E675E", domainColor="#E4DFD6"),
+            axis=alt.Axis(grid=False, tickCount=4, labelColor="#3E564A", domainColor="rgba(22,48,40,0.16)"),
         ),
         y=y_enc,
         tooltip=[
@@ -605,21 +619,22 @@ def _health_chart(df: pd.DataFrame, y: str, title: str, percent: bool = False, u
         ],
     )
     color = {
-        "error_rate": "#9C3B32",
-        "abstention_rate": "#B5762A",
-        "citation_support": "#1F6B5A",
-        "latency_s": "#3E5C76",
-        "max_dense": "#5B4B8A",
-    }.get(y, "#1F6B5A")
+        "error_rate": "#C45B6A",
+        "abstention_rate": "#C4893A",
+        "citation_support": "#1F7A58",
+        "latency_s": "#3D6B8A",
+        "max_dense": "#5C6B3A",
+    }.get(y, "#1F6B4A")
     chart = (base.mark_line(color=color, strokeWidth=2) + base.mark_circle(color=color, size=36))
     return (
         chart.properties(
             height=168,
-            title=alt.TitleParams(text=title, anchor="start", fontSize=15, fontWeight=500, color="#1C2422"),
+            title=alt.TitleParams(text=title, anchor="start", fontSize=15, fontWeight=500, color="#163028"),
         )
+        .configure(background="transparent")
         .configure_view(strokeWidth=0)
-        .configure_axis(labelFont="Source Sans 3")
-        .configure_title(font="Newsreader")
+        .configure_axis(labelFont="Figtree", labelColor="#3E564A", titleColor="#3E564A")
+        .configure_title(font="Figtree", color="#163028")
     )
 
 
@@ -742,12 +757,12 @@ with tab_ask:
 
     # ── Sidebar: retrieval settings ──────────────────────────────────────────
     with st.sidebar:
-        st.header("Retrieval")
+        st.header("Search")
 
-        top_k = st.slider("Number of sources (top-k)", 1, 10, 3)
+        top_k = st.slider("Passages to show", 1, 10, 3)
 
         rerank = st.toggle(
-            "Cross-encoder re-ranking",
+            "Closer reading",
             value=True,
             help="On by default. A second model reads the question together with "
             "each candidate passage and keeps the closest matches. Turn it off "
