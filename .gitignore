@@ -1,6 +1,10 @@
 # Secrets
 .env
 
+# Local generator weights. The Space image downloads these at build time.
+models/
+*.gguf
+
 # Python
 __pycache__/
 *.py[cod]

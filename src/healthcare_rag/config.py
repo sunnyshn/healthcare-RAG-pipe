@@ -22,7 +22,7 @@ RERANK_MODEL_NAME = "Xenova/ms-marco-MiniLM-L-6-v2"
 
 # How many stage-1 candidates to pull before cross-encoder re-ranking.
 # Larger = better recall into the reranker, but slower.
-RERANK_CANDIDATES = 20
+RERANK_CANDIDATES = 12
 
 # ---------------------------------------------------------------------------
 # Experiment tracking (MLflow)

@@ -68,6 +68,7 @@ class QueryHealth:
     specialty: str = "all"
     session_id: str = ""
     llm_enabled: bool = False
+    generator: str = ""
     error: bool = False
     outcome: str = "answered"
 
@@ -295,7 +296,7 @@ def _params(record: QueryHealth) -> dict:
         "rerank": "true" if record.rerank else "false",
         "specialty": specialty[:250],
         "outcome": record.outcome[:250],
-        "generation": "llm" if record.llm_enabled else "offline",
+        "generation": (record.generator or ("llm" if record.llm_enabled else "offline"))[:32],
     }
     session = (record.session_id or "").strip()
     if session:

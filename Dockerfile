@@ -17,7 +17,18 @@ WORKDIR $HOME/app
 
 COPY --chown=user requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir \
+        --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu \
+        "llama-cpp-python==0.3.36"
+
+# Public weights, no account token. Inference only: the file is read, never updated.
+ENV LOCAL_LLM_PATH=/home/user/app/models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
+    LOCAL_LLM_THREADS=2 \
+    LOCAL_LLM_CTX=1024
+RUN mkdir -p /home/user/app/models \
+    && curl -L --fail --retry 3 -o "$LOCAL_LLM_PATH" \
+        https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf
 
 COPY --chown=user . .
 
@@ -35,7 +46,5 @@ EXPOSE 8501
 
 HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health || exit 1
 
-ENTRYPOINT ["streamlit", "run", "app/streamlit_app.py", \
-            "--server.port=8501", \
-            "--server.address=0.0.0.0", \
-            "--server.headless=true"]
+# Open the page while the models load. serve.py starts that load, then Streamlit.
+ENTRYPOINT ["python", "scripts/serve.py"]

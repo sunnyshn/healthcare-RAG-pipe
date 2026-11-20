@@ -59,7 +59,9 @@ class CrossEncoderReranker:
         if not hits:
             return []
 
-        scores = self.score(query, [h.text for h in hits])
+        # The cross-encoder only needs the opening of an abstract.
+        previews = [" ".join(hit.text.split())[:480] for hit in hits]
+        scores = self.score(query, previews)
         for hit, s in zip(hits, scores):
             hit.score_rerank = s
 

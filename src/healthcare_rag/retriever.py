@@ -248,7 +248,7 @@ class HybridRetriever:
         sparse_scores_sub = cosine_similarity(q_vec, sub_matrix)[0]
 
         encoder = self._encoder_model()
-        q_raw = list(encoder.embed([f"query: {query}"]))[0]
+        q_raw = list(encoder.embed([f"query: {query}"], batch_size=1, parallel=1))[0]
         q_emb = np.asarray(q_raw, dtype=np.float64).reshape(1, -1)
         dense_scores_sub = cosine_similarity(q_emb, sub_embeddings)[0]
 
