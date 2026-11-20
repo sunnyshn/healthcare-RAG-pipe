@@ -1,4 +1,4 @@
-"""Tests for healthcare_rag.generator — context building, abstention, offline fallback."""
+"""Tests for healthcare_rag.generator — abstention and the offline fallback."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from healthcare_rag.generator import (
     ABSTENTION_MARKER,
     LOW_EVIDENCE_THRESHOLD,
     _as_abstention,
-    _build_context,
     for_visitors,
     generate_answer,
     is_abstention,
@@ -44,40 +43,7 @@ def _make_hit(
     )
 
 
-# ── _build_context ───────────────────────────────────────────────────────────
-
-
-class TestBuildContext:
-    def test_includes_numbered_passages(self):
-        hits = [_make_hit(doc_id="d1"), _make_hit(doc_id="d2")]
-        ctx = _build_context(hits)
-        assert "[1]" in ctx
-        assert "[2]" in ctx
-
-    def test_includes_title_and_year(self):
-        hit = _make_hit(title="My Study", year=2021)
-        ctx = _build_context([hit])
-        assert "My Study" in ctx
-        assert "2021" in ctx
-
-    def test_low_evidence_warning_when_below_threshold(self):
-        hit = _make_hit(score_dense=LOW_EVIDENCE_THRESHOLD - 0.05)
-        ctx = _build_context([hit])
-        assert "NOTE:" in ctx or "low" in ctx.lower()
-
-    def test_no_warning_when_above_threshold(self):
-        hit = _make_hit(score_dense=LOW_EVIDENCE_THRESHOLD + 0.05)
-        ctx = _build_context([hit])
-        assert "NOTE:" not in ctx
-
-    def test_text_truncated_at_1300_chars(self):
-        long_text = "x" * 2000
-        hit = _make_hit(text=long_text)
-        ctx = _build_context([hit])
-        assert "x" * 1301 not in ctx
-
-
-# ── generate_answer (offline fallback, no API key) ───────────────────────────
+# ── generate_answer (offline fallback) ───────────────────────────────────────
 
 
 class TestGenerateAnswerOffline:
@@ -156,6 +122,18 @@ class TestGenerateAnswerOffline:
         cleaned = _as_abstention(leaked)
         assert cleaned.upper().startswith(ABSTENTION_MARKER.upper())
         assert "relevant information" not in cleaned
+
+    def test_plain_refusal_is_a_no_close_match(self):
+        leaked = (
+            "First-line treatment for stage 1 hypertension in adults with diabetes "
+            "is not explicitly addressed in the provided passages."
+        )
+        assert is_abstention(leaked) is True
+        shown = for_visitors(leaked)
+        assert "not explicitly addressed" not in shown
+        assert "provided passages" not in shown
+        assert "close match" in shown
+        assert "won't guess" in shown
 
 
 # ── stream_answer ────────────────────────────────────────────────────────────

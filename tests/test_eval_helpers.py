@@ -80,6 +80,13 @@ class TestIsAbstention:
         answer = f"These articles do not contain relevant information [{ABSTENTION_MARKER}]"
         assert is_abstention(answer) is True
 
+    def test_plain_refusal_counts(self):
+        answer = (
+            "First-line treatment for stage 1 hypertension in adults with diabetes "
+            "is not explicitly addressed in the provided passages."
+        )
+        assert is_abstention(answer) is True
+
     def test_whitespace_stripped(self):
         answer = f"   \n{ABSTENTION_MARKER} explanation"
         assert is_abstention(answer) is True

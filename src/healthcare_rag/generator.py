@@ -51,29 +51,6 @@ _SYSTEM_PROMPT = (
 )
 
 
-def _build_context(hits: List[SearchResult]) -> str:
-    max_dense = max(
-        (h.score_dense for h in hits if h.score_dense is not None),
-        default=None,
-    )
-    warning = ""
-    if max_dense is not None and max_dense < LOW_EVIDENCE_THRESHOLD:
-        warning = (
-            f"[NOTE: Highest semantic similarity to this question is {max_dense:.2f}, "
-            "which is low. If the passages below do not directly address the question, "
-            f"respond with '{ABSTENTION_MARKER}'.]\n\n"
-        )
-
-    blocks = []
-    for i, h in enumerate(hits, start=1):
-        blocks.append(
-            f"[{i}] {h.title} ({h.year}, {h.source})\n"
-            f"doc_id: {h.doc_id}\n"
-            f"text: {h.text[:1300]}"
-        )
-    return warning + "\n\n".join(blocks)
-
-
 def _passages_to_cite(hits: List[SearchResult]) -> List[SearchResult]:
     """Drop passages that are clearly weaker than the best match."""
     if not hits:
@@ -106,13 +83,42 @@ def _snippet(text: str, limit: int = 280) -> str:
     return flat[: limit - 1].rstrip() + "…"
 
 
+# Plain-language refusals. The small model often skips the marker and writes
+# one of these instead of a recommendation.
+_REFUSAL_PHRASES = (
+    "not explicitly addressed",
+    "not addressed in",
+    "do not address",
+    "does not address",
+    "don't address",
+    "doesn't address",
+    "do not contain",
+    "does not contain",
+    "don't contain",
+    "doesn't contain",
+    "no relevant",
+    "not enough information",
+    "not enough evidence",
+    "insufficient evidence",
+    "cannot answer",
+    "can't answer",
+    "unable to answer",
+    "provided passages",
+    "provided articles",
+)
+
+
 def is_abstention(answer: str) -> bool:
     """True when the reply refuses to answer.
 
     The marker counts wherever it appears. A small model often writes a
-    sentence and then appends the marker, sometimes inside brackets.
+    sentence such as "not explicitly addressed in the provided passages"
+    instead of the marker. That is the same refusal.
     """
-    return ABSTENTION_MARKER.upper() in (answer or "").upper()
+    text = (answer or "").upper()
+    if ABSTENTION_MARKER.upper() in text:
+        return True
+    return any(phrase.upper() in text for phrase in _REFUSAL_PHRASES)
 
 
 def for_visitors(answer: str) -> str:
@@ -134,7 +140,7 @@ def _as_abstention(text: str) -> str:
 
 
 def _offline_answer(_question: str, hits: List[SearchResult]) -> str:
-    """Deterministic fallback when no API key is set: abstain or cite passages."""
+    """Extractive list used when the local model is unavailable."""
     max_dense = max(
         (h.score_dense for h in hits if h.score_dense is not None),
         default=0.0,

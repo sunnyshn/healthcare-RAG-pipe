@@ -327,8 +327,13 @@ a.finding-title:hover { color: #1C4A36 !important; }
     border-radius: 20px;
     padding: 1rem 1rem 1.1rem;
 }
-.feature-card .kicker { font-size: 0.78rem; color: rgba(22, 48, 40, 0.5); }
-.feature-card h4 { margin: 0.3rem 0 0.3rem; font-size: 1.05rem; color: #12261E; }
+.feature-card h4 {
+    margin: 0 0 0.75rem;
+    padding-bottom: 0.55rem;
+    border-bottom: 1px solid rgba(70, 74, 72, 0.16);
+    font-size: 1.05rem;
+    color: #12261E;
+}
 .feature-card p { margin: 0; color: rgba(22, 48, 40, 0.74); font-size: 0.9rem; line-height: 1.5; }
 .welcome-hint { color: rgba(22, 48, 40, 0.68); font-size: 0.96rem; margin: 0 0 0.85rem; }
 
@@ -770,41 +775,6 @@ def stream_answer_into(placeholder, question, hits) -> str:
     return acc
 
 
-def render_grounding(report) -> None:
-    """Show a compact citation-faithfulness summary for a generated answer."""
-    if report.abstained or report.n_claims == 0:
-        return
-
-    cov = report.citation_coverage
-    sup = report.citation_support
-    invalid = report.invalid_citations
-    st.markdown(
-        _stats_html(
-            [
-                ("Claims cited", f"{cov:.0%}", "Share of claims with a source"),
-                ("On-topic citations", f"{sup:.0%}", "Cited passages that match the claim"),
-                ("Invalid citations", str(invalid), "Numbers that point at nothing retrieved"),
-            ]
-        ),
-        unsafe_allow_html=True,
-    )
-
-    cited = report.cited_claims
-    if cited:
-        with st.expander("Per-claim grounding detail"):
-            for s in cited:
-                mark = "Supported" if s.supported else "Weak"
-                score = f"{s.best_support:.2f}" if s.best_support is not None else "—"
-                cite_str = ", ".join(f"[{c}]" for c in s.valid_citations)
-                st.markdown(
-                    f"{mark} **sim {score}** {cite_str} — {strip_for_display(s.sentence)}"
-                )
-
-
-def strip_for_display(text: str) -> str:
-    return text.replace("<", "&lt;").replace(">", "&gt;")
-
-
 def render_evidence(hits) -> None:
     for i, h in enumerate(hits, start=1):
         text = h.text[:600] + ("…" if len(h.text) > 600 else "")
@@ -843,10 +813,12 @@ def render_evidence(hits) -> None:
 
 
 EXAMPLE_QUESTIONS = [
-    "What is first-line treatment for stage 1 hypertension in adults with diabetes?",
     "How is stroke risk managed in atrial fibrillation?",
-    "Which antibiotics are recommended for community-acquired pneumonia?",
-    "What is the first-line treatment for major depressive disorder?",
+    "How should type 2 diabetes be managed in older adults?",
+    "What is the first-line treatment for insomnia?",
+    "What is first-line treatment for stage 1 hypertension in adults with diabetes?",
+    "What is the recommended chemotherapy regimen for acute myeloid leukemia?",
+    "What are the first-line treatments for Alzheimer's disease?",
 ]
 
 
@@ -864,23 +836,23 @@ def render_welcome() -> None:
         "or write your own above.</div>",
         unsafe_allow_html=True,
     )
-    cols = st.columns(2)
+    cols = st.columns(3)
     for i, q in enumerate(EXAMPLE_QUESTIONS):
-        cols[i % 2].button(
+        cols[i % 3].button(
             q, key=f"example_{i}", on_click=_use_example, args=(q,), use_container_width=True
         )
 
     st.markdown(
         '<div class="section-label" style="margin-top:1.5rem;">How an answer is made</div>'
         '<div class="feature-grid">'
-        '<div class="feature-card"><div class="kicker">01</div>'
-        "<h4>Hybrid retrieval</h4><p>Keyword and semantic search over PubMed "
+        '<div class="feature-card">'
+        "<h4>Hybrid Retrieval</h4><p>Keyword and semantic search over PubMed "
         "abstracts, fused so exact terms and related meaning both count.</p></div>"
-        '<div class="feature-card"><div class="kicker">02</div>'
-        "<h4>Grounded answers</h4><p>The reply is built only from what was "
+        '<div class="feature-card">'
+        "<h4>Grounded Answers</h4><p>The reply is built only from what was "
         "retrieved, and it declines when the evidence is too thin.</p></div>"
-        '<div class="feature-card"><div class="kicker">03</div>'
-        "<h4>Citation check</h4><p>Each cited claim is compared with the passage "
+        '<div class="feature-card">'
+        "<h4>Citation Check</h4><p>Each cited claim is compared with the passage "
         "it points to, so support is visible rather than assumed.</p></div>"
         "</div>",
         unsafe_allow_html=True,
