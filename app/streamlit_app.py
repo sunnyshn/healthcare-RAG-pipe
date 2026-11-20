@@ -212,7 +212,7 @@ div[data-testid="stFormSubmitButton"] > button:hover {
     letter-spacing: -0.045em;
     line-height: 1.05;
     margin: 0 0 0.7rem;
-    color: #12261E;
+    color: #3F3C38;
 }
 .hero p {
     color: rgba(22, 48, 40, 0.78);
