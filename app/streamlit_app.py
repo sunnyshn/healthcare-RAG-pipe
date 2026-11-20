@@ -223,6 +223,9 @@ div[data-testid="stFormSubmitButton"] > button:hover {
     color: #1B6B42;
     margin: 0 0 0.7rem;
 }
+.answer-takeaway.quiet {
+    color: #6E7872;
+}
 .hero h1 {
     font-size: 2.7rem;
     font-weight: 650;
@@ -265,8 +268,8 @@ a.cite:hover { border-bottom-color: #1C4A36; }
     line-height: 1.45;
     font-weight: 500;
 }
-.answer-note {
-    margin: 0 0 0.9rem;
+.answer-card .answer-note {
+    margin: 1.35rem 0 0.9rem;
     color: rgba(22, 48, 40, 0.62);
     font-size: 0.86rem;
     line-height: 1.4;
@@ -751,21 +754,22 @@ def _answer_card_html(answer: str, hits=None, streaming: bool = False) -> str:
     if streaming and not outlined:
         heading = "Writing"
     elif is_abstain:
-        heading = "No close match"
+        heading = "No close match."
     elif outlined:
         heading = "Closest matches"
     else:
-        heading = "Recommendation"
+        heading = "Recommendation:"
     if outlined:
         body = _overview_html(hits) + _RESULT_NOTE + _findings_html(hits)
     else:
         body = _format_citations(visitor, hits) + _RESULT_NOTE
     cursor = '<span class="type-cursor">▌</span>' if streaming else ""
-    label_cls = (
-        "answer-takeaway"
-        if heading in {"Recommendation", "Writing", "No close match"}
-        else "eyebrow"
-    )
+    if heading == "No close match.":
+        label_cls = "answer-takeaway quiet"
+    elif heading in {"Recommendation:", "Writing"}:
+        label_cls = "answer-takeaway"
+    else:
+        label_cls = "eyebrow"
     return (
         f'<div class="{cls}"><div class="{label_cls}">{heading}</div>'
         f"{body}{cursor}</div>"
@@ -1244,6 +1248,7 @@ with tab_ask:
             st.stop()
 
         t0 = time.perf_counter()
+        counting = False
         retrieval_s = generation_s = grounding_s = 0.0
         logged = False
         specialty_label = specialty_sel if specialty_sel != "(all)" else "all"
@@ -1263,10 +1268,13 @@ with tab_ask:
             spinner_msg = (
                 "Retrieving + re-ranking evidence…" if rerank else "Retrieving evidence…"
             )
-            t_r = time.perf_counter()
             if not models_ready():
                 with st.spinner("Getting the library ready…"):
                     wait_for_models()
+            # Opening the library is not part of the question.
+            t0 = time.perf_counter()
+            counting = True
+            t_r = time.perf_counter()
             with st.spinner(spinner_msg):
                 hits = retriever.search(
                     question,
@@ -1353,7 +1361,7 @@ with tab_ask:
                     latency_retrieval_s=retrieval_s,
                     latency_generation_s=generation_s,
                     latency_grounding_s=grounding_s,
-                    latency_total_s=time.perf_counter() - t0,
+                    latency_total_s=0.0 if not counting else time.perf_counter() - t0,
                     top_k=top_k,
                     rerank=rerank,
                     specialty=specialty_label,

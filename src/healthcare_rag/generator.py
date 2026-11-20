@@ -47,7 +47,8 @@ _SYSTEM_PROMPT = (
     "Do not diagnose the reader or give emergency guidance. "
     "If the passages do not contain enough information to answer, start your response with "
     f"'{ABSTENTION_MARKER}'. "
-    "Keep it under 80 words. Put citations at the end of the sentence they support, as [1] or [2]."
+    "Use at most 4 sentences and end the last one completely. "
+    "Put citations at the end of the sentence they support, as [1] or [2]."
 )
 
 
@@ -243,6 +244,49 @@ def _control_flow(exc: BaseException) -> bool:
     return type(exc).__name__ in {"RerunException", "StopException", "ScriptControlException"}
 
 
+def _closed_prefix(text: str) -> str:
+    """Text through the last finished sentence, including a citation that follows it.
+
+    A token limit can slice the reply mid-word. Anything after the last period,
+    question mark, or exclamation point stays hidden.
+    """
+    last = -1
+    for index, char in enumerate(text):
+        if char not in ".!?":
+            continue
+        if (
+            char == "."
+            and index > 0
+            and index + 1 < len(text)
+            and text[index - 1].isdigit()
+            and text[index + 1].isdigit()
+        ):
+            continue
+        last = index
+    if last < 0:
+        return ""
+    rest = text[last + 1 :]
+    gap = 0
+    while rest[gap:].startswith(" ") or rest[gap:].startswith("\n"):
+        gap += 1
+    extra = gap
+    found_cite = False
+    while True:
+        cite = rest[extra:]
+        if len(cite) < 3 or cite[0] != "[":
+            break
+        end = cite.find("]")
+        if end < 2 or not cite[1:end].isdigit():
+            break
+        found_cite = True
+        extra += end + 1
+        while rest[extra:].startswith(" "):
+            extra += 1
+    if not found_cite:
+        extra = 0
+    return text[: last + 1 + extra]
+
+
 def _stream_local(question: str, hits: List[SearchResult]) -> Iterator[str]:
     """Yield the recommendation as it is written. Weights are not updated."""
     max_dense = max(
@@ -257,10 +301,12 @@ def _stream_local(question: str, hits: List[SearchResult]) -> Iterator[str]:
         yield _offline_answer(question, hits)
         return
     produced = False
+    full = ""
+    shown = 0
     pending = ""
     for chunk in llm.create_chat_completion(
         messages=_local_messages(question, hits),
-        max_tokens=120,
+        max_tokens=220,
         temperature=0.1,
         repeat_penalty=1.05,
         stream=True,
@@ -272,8 +318,13 @@ def _stream_local(question: str, hits: List[SearchResult]) -> Iterator[str]:
         piece = delta.get("content") or ""
         if not piece:
             continue
-        pending += piece
-        if len(pending) >= 24 or pending.endswith((" ", "\n", ".", ",")):
+        full += piece
+        closed = _closed_prefix(full)
+        if len(closed) <= shown:
+            continue
+        pending += closed[shown:]
+        shown = len(closed)
+        if len(pending) >= 24 or pending.endswith((" ", "\n", ".", ",", "!", "?")):
             produced = True
             yield pending
             pending = ""
