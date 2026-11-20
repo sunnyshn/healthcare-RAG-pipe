@@ -4,8 +4,6 @@ import os
 from pathlib import Path
 from typing import Dict, Iterator, List
 
-import openai
-
 try:
     from dotenv import load_dotenv
 
@@ -73,19 +71,6 @@ def _build_context(hits: List[SearchResult]) -> str:
             f"text: {h.text[:1300]}"
         )
     return warning + "\n\n".join(blocks)
-
-
-def _build_messages(question: str, hits: List[SearchResult]) -> List[Dict[str, str]]:
-    context = _build_context(hits)
-    user_msg = (
-        "Write one recommendation that answers the question. "
-        "Do not describe each paper separately.\n\n"
-        f"Question:\n{question}\n\nEvidence:\n{context}"
-    )
-    return [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user", "content": user_msg},
-    ]
 
 
 def _passages_to_cite(hits: List[SearchResult]) -> List[SearchResult]:
@@ -342,37 +327,19 @@ def _local_answer(question: str, hits: List[SearchResult]) -> str:
 
 
 def generate_answer(question: str, hits: List[SearchResult]) -> str:
-    # A local weights file always wins, so a stray API key cannot place a paid call.
+    """Reply from the local model, or the extractive list when it is unavailable."""
     if local_generator_ready():
         try:
             return _local_answer(question, hits)
         except Exception:
             return _offline_answer(question, hits)
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return _offline_answer(question, hits)
-
-    try:
-        client = openai.OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=_build_messages(question, hits),
-            temperature=0.1,
-        )
-        content = response.choices[0].message.content
-        if content and content.strip():
-            return content.strip()
-    except Exception:
-        pass
     return _offline_answer(question, hits)
 
 
 def stream_answer(question: str, hits: List[SearchResult]) -> Iterator[str]:
-    """Yield the answer incrementally as text chunks (for live UI rendering).
+    """Yield the reply as it is written.
 
-    Falls back to yielding the full offline answer in one chunk when no API key
-    is configured, so callers can use a single streaming code path.
+    Without the local model, the extractive list is yielded in one chunk.
     """
     if local_generator_ready():
         produced = False
@@ -386,31 +353,5 @@ def stream_answer(question: str, hits: List[SearchResult]) -> Iterator[str]:
             if not produced:
                 yield _offline_answer(question, hits)
         return
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        yield _offline_answer(question, hits)
-        return
-
-    produced = False
-    try:
-        client = openai.OpenAI(api_key=api_key)
-        stream = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=_build_messages(question, hits),
-            temperature=0.1,
-            stream=True,
-        )
-        for chunk in stream:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta.content
-            if delta:
-                produced = True
-                yield delta
-        if not produced:
-            yield _offline_answer(question, hits)
-    except Exception:
-        if not produced:
-            yield _offline_answer(question, hits)
+    yield _offline_answer(question, hits)
 

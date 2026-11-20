@@ -5,6 +5,5 @@ streamlit>=1.40,<1.41
 tqdm
 requests>=2.28
 python-dotenv
-openai>=1.0,<2
 fastembed>=0.4,<1
 mlflow>=2.9,<3

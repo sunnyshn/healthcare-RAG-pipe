@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import os
-from unittest.mock import MagicMock, patch
-
 import pytest
 
 from healthcare_rag.generator import (
@@ -81,11 +78,11 @@ class TestBuildContext:
 
 
 class TestGenerateAnswerOffline:
-    """Tests that run without an OPENAI_API_KEY — exercises the extractive fallback."""
+    """Extractive list used when the local model file is not configured."""
 
     @pytest.fixture(autouse=True)
-    def _clear_api_key(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    def _no_local_model(self, monkeypatch):
+        monkeypatch.delenv("LOCAL_LLM_PATH", raising=False)
 
     def test_abstains_on_low_similarity(self):
         hits = [_make_hit(score_dense=LOW_EVIDENCE_THRESHOLD - 0.1)]
@@ -146,71 +143,13 @@ class TestGenerateAnswerOffline:
         assert "won't guess" in shown
 
 
-# ── generate_answer (with mocked OpenAI) ─────────────────────────────────────
-
-
-class TestGenerateAnswerLLM:
-    def test_calls_openai_with_system_and_user_messages(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key-fake")
-
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "ACE inhibitors are recommended [1]."
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.chat.completions.create.return_value = mock_response
-
-        with patch(
-            "healthcare_rag.generator.openai.OpenAI",
-            create=True,
-            return_value=mock_client_instance,
-        ):
-            hits = [_make_hit(score_dense=0.90)]
-            answer = generate_answer("hypertension treatment?", hits)
-
-        call_kwargs = mock_client_instance.chat.completions.create.call_args.kwargs
-        messages = call_kwargs["messages"]
-        assert messages[0]["role"] == "system"
-        assert messages[1]["role"] == "user"
-        assert "ACE inhibitors" in answer
-
-    def test_system_prompt_mentions_abstention_marker(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key-fake")
-
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "Answer."
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.chat.completions.create.return_value = mock_response
-
-        with patch(
-            "healthcare_rag.generator.openai.OpenAI",
-            create=True,
-            return_value=mock_client_instance,
-        ):
-            generate_answer("test?", [_make_hit()])
-
-        call_kwargs = mock_client_instance.chat.completions.create.call_args.kwargs
-        system_msg = call_kwargs["messages"][0]["content"]
-        assert ABSTENTION_MARKER in system_msg
-
-
 # ── stream_answer ────────────────────────────────────────────────────────────
-
-
-def _chunk(content):
-    """Build a fake streaming chunk with a single choice delta."""
-    ch = MagicMock()
-    ch.choices = [MagicMock()]
-    ch.choices[0].delta.content = content
-    return ch
 
 
 class TestStreamAnswerOffline:
     @pytest.fixture(autouse=True)
-    def _clear_api_key(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    def _no_local_model(self, monkeypatch):
+        monkeypatch.delenv("LOCAL_LLM_PATH", raising=False)
 
     def test_yields_offline_answer_in_one_chunk(self):
         hits = [_make_hit(score_dense=0.90)]
@@ -223,60 +162,3 @@ class TestStreamAnswerOffline:
         hits = [_make_hit(score_dense=LOW_EVIDENCE_THRESHOLD - 0.1)]
         full = "".join(stream_answer("irrelevant", hits))
         assert full.upper().startswith(ABSTENTION_MARKER.upper())
-
-
-class TestStreamAnswerLLM:
-    def test_streams_and_joins_deltas(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key-fake")
-
-        fake_stream = [
-            _chunk("ACE inhibitors "),
-            _chunk("are recommended "),
-            _chunk(None),  # keep-alive / role chunk with no text
-            _chunk("[1]."),
-        ]
-        mock_client_instance = MagicMock()
-        mock_client_instance.chat.completions.create.return_value = fake_stream
-
-        with patch(
-            "healthcare_rag.generator.openai.OpenAI",
-            create=True,
-            return_value=mock_client_instance,
-        ):
-            full = "".join(stream_answer("hypertension?", [_make_hit(score_dense=0.9)]))
-
-        assert full == "ACE inhibitors are recommended [1]."
-        call_kwargs = mock_client_instance.chat.completions.create.call_args.kwargs
-        assert call_kwargs["stream"] is True
-
-    def test_api_failure_falls_back_without_raising(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key-fake")
-        mock_client_instance = MagicMock()
-        mock_client_instance.chat.completions.create.side_effect = RuntimeError(
-            "Incorrect API key provided"
-        )
-        with patch(
-            "healthcare_rag.generator.openai.OpenAI",
-            create=True,
-            return_value=mock_client_instance,
-        ):
-            answer = "".join(stream_answer("question", [_make_hit(score_dense=0.9)]))
-        assert "API" not in answer
-        assert "[1]" in answer
-
-    def test_handles_chunk_without_choices(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key-fake")
-
-        empty = MagicMock()
-        empty.choices = []
-        mock_client_instance = MagicMock()
-        mock_client_instance.chat.completions.create.return_value = [empty, _chunk("ok")]
-
-        with patch(
-            "healthcare_rag.generator.openai.OpenAI",
-            create=True,
-            return_value=mock_client_instance,
-        ):
-            full = "".join(stream_answer("q", [_make_hit(score_dense=0.9)]))
-
-        assert full == "ok"

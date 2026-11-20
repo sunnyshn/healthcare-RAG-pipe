@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import sys
 import time
@@ -57,26 +56,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-# Bridge Streamlit Cloud secrets to env vars so generator.py (which reads
-# os.getenv) works in deployment without code changes. We only touch
-# st.secrets when a secrets.toml actually exists — otherwise Streamlit surfaces
-# a "No secrets found" error (e.g. on Hugging Face Spaces, where the key, if
-# any, is injected as an environment variable instead).
-if not os.getenv("OPENAI_API_KEY"):
-    _secret_paths = (
-        Path.home() / ".streamlit" / "secrets.toml",
-        ROOT / ".streamlit" / "secrets.toml",
-    )
-    if any(p.exists() for p in _secret_paths):
-        try:
-            if "OPENAI_API_KEY" in st.secrets:
-                os.environ["OPENAI_API_KEY"] = str(st.secrets["OPENAI_API_KEY"])
-        except Exception:
-            pass  # Malformed/empty secrets file — fall back to env vars.
-
-LLM_ENABLED = bool(os.getenv("OPENAI_API_KEY"))
-
 
 # ---------------------------------------------------------------------------
 # Custom styling
@@ -932,13 +911,8 @@ def _load_health(session_id: str, limit: int = 200):
 
 def _record_health(**kwargs) -> None:
     """Log one query. Never raises; refreshes the Health tab cache."""
-    if local_generator_ready():
-        generator_name = "local"
-    elif LLM_ENABLED:
-        generator_name = "llm"
-    else:
-        generator_name = "offline"
-    kwargs.setdefault("llm_enabled", LLM_ENABLED or generator_name == "local")
+    generator_name = "local" if local_generator_ready() else "offline"
+    kwargs.setdefault("llm_enabled", generator_name == "local")
     kwargs.setdefault("generator", generator_name)
     kwargs.setdefault("session_id", _health_session())
     try:

@@ -1,5 +1,4 @@
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -19,7 +18,12 @@ from healthcare_rag.config import (
     RERANK_MODEL_NAME,
 )
 from healthcare_rag.faithfulness import DEFAULT_SUPPORT_THRESHOLD, check_faithfulness
-from healthcare_rag.generator import ABSTENTION_MARKER, LOW_EVIDENCE_THRESHOLD, generate_answer
+from healthcare_rag.generator import (
+    ABSTENTION_MARKER,
+    LOW_EVIDENCE_THRESHOLD,
+    generate_answer,
+    local_generator_ready,
+)
 from healthcare_rag.retriever import HybridRetriever
 
 # ---------------------------------------------------------------------------
@@ -135,7 +139,7 @@ def main() -> None:
     args = parser.parse_args()
 
     retriever = HybridRetriever.load(INDEX_PATH)
-    has_api_key = bool(os.getenv("OPENAI_API_KEY"))
+    generation_mode = "local" if local_generator_ready() else "offline"
 
     if args.rerank:
         print("Cross-encoder re-ranking: ENABLED")
@@ -149,7 +153,7 @@ def main() -> None:
         "rerank_candidates": RERANK_CANDIDATES if args.rerank else 0,
         "low_evidence_threshold": LOW_EVIDENCE_THRESHOLD,
         "support_threshold": DEFAULT_SUPPORT_THRESHOLD,
-        "generation_mode": "llm" if has_api_key else "offline_heuristic",
+        "generation_mode": generation_mode,
         "corpus_size": int(len(retriever.tfidf.metadata)),
         "n_answerable": len(ANSWERABLE_SET),
         "n_unanswerable": len(UNANSWERABLE_SET),
@@ -201,11 +205,11 @@ def main() -> None:
     )
 
     # ── Part 2: Abstention rate ──────────────────────────────────────────────
-    _section("Part 2: Abstention rate (requires OPENAI_API_KEY)")
+    _section("Part 2: Abstention rate")
 
     abstention_rows = []
 
-    mode = "LLM (gpt-4.1-mini)" if has_api_key else "heuristic offline (dense similarity)"
+    mode = "local model" if generation_mode == "local" else "extractive list"
     print(f"  Abstention marker : '{ABSTENTION_MARKER}'")
     print(f"  Coverage threshold: dense cosine >= {LOW_EVIDENCE_THRESHOLD}")
     print(f"  Generation mode   : {mode}\n")
@@ -265,65 +269,59 @@ def main() -> None:
                 )
 
     # ── Part 3: Citation faithfulness ────────────────────────────────────────
-    _section("Part 3: Citation faithfulness (requires OPENAI_API_KEY)")
+    _section("Part 3: Citation faithfulness")
     print(f"  Support threshold : dense cosine >= {DEFAULT_SUPPORT_THRESHOLD}")
     print("  Coverage = claims that cite a source | Support = citations on-topic\n")
 
     faithfulness_rows = []
-    if not has_api_key:
-        print(
-            "  Skipped: no OPENAI_API_KEY set. The offline extractive baseline does not\n"
-            "  emit [n] citations, so faithfulness cannot be measured. Set the key to enable."
+
+    def _embed_fn(texts):
+        encoder = retriever._encoder_model()
+        return [np.asarray(v, dtype=np.float64) for v in encoder.embed(list(texts))]
+
+    for item in ANSWERABLE_SET:
+        question = item["question"]
+        hits = retriever.search(question, k=3, rerank=args.rerank)
+        answer = generate_answer(question, hits)
+        report = check_faithfulness(answer, hits, embed_fn=_embed_fn)
+
+        if report.abstained:
+            print(f"  [ABSTAINED] {question[:66]}")
+            continue
+
+        faithfulness_rows.append(
+            {
+                "question": question,
+                "citation_coverage": report.citation_coverage,
+                "citation_support": report.citation_support,
+                "invalid_citation_rate": report.invalid_citation_rate,
+                "mean_support": report.mean_support,
+            }
         )
-    else:
+        flag = "" if report.invalid_citations == 0 else f"  !! {report.invalid_citations} invalid cite(s)"
+        print(
+            f"  coverage={report.citation_coverage:.0%} "
+            f"support={report.citation_support:.0%} "
+            f"mean_sim={report.mean_support:.2f}{flag}  | {question[:50]}"
+        )
 
-        def _embed_fn(texts):
-            encoder = retriever._encoder_model()
-            return [np.asarray(v, dtype=np.float64) for v in encoder.embed(list(texts))]
-
-        for item in ANSWERABLE_SET:
-            question = item["question"]
-            hits = retriever.search(question, k=3, rerank=args.rerank)
-            answer = generate_answer(question, hits)
-            report = check_faithfulness(answer, hits, embed_fn=_embed_fn)
-
-            if report.abstained:
-                print(f"  [ABSTAINED] {question[:66]}")
-                continue
-
-            faithfulness_rows.append(
-                {
-                    "question": question,
-                    "citation_coverage": report.citation_coverage,
-                    "citation_support": report.citation_support,
-                    "invalid_citation_rate": report.invalid_citation_rate,
-                    "mean_support": report.mean_support,
-                }
-            )
-            flag = "" if report.invalid_citations == 0 else f"  !! {report.invalid_citations} invalid cite(s)"
+    if faithfulness_rows:
+        faithfulness_df = pd.DataFrame(faithfulness_rows)
+        metrics["citation_coverage"] = faithfulness_df["citation_coverage"].mean()
+        metrics["citation_support"] = faithfulness_df["citation_support"].mean()
+        metrics["invalid_citation_rate"] = faithfulness_df["invalid_citation_rate"].mean()
+        metrics["mean_support"] = faithfulness_df["mean_support"].mean()
+        print(
+            f"\n  MEAN  coverage={faithfulness_df['citation_coverage'].mean():.0%} "
+            f"support={faithfulness_df['citation_support'].mean():.0%} "
+            f"invalid_rate={faithfulness_df['invalid_citation_rate'].mean():.0%} "
+            f"mean_sim={faithfulness_df['mean_support'].mean():.2f}"
+        )
+        if faithfulness_df["citation_support"].mean() < 1.0:
             print(
-                f"  coverage={report.citation_coverage:.0%} "
-                f"support={report.citation_support:.0%} "
-                f"mean_sim={report.mean_support:.2f}{flag}  | {question[:50]}"
+                "  WARNING: some cited passages are weakly related to their claims.\n"
+                "  Review answers for citations that don't actually support the statement."
             )
-
-        if faithfulness_rows:
-            faithfulness_df = pd.DataFrame(faithfulness_rows)
-            metrics["citation_coverage"] = faithfulness_df["citation_coverage"].mean()
-            metrics["citation_support"] = faithfulness_df["citation_support"].mean()
-            metrics["invalid_citation_rate"] = faithfulness_df["invalid_citation_rate"].mean()
-            metrics["mean_support"] = faithfulness_df["mean_support"].mean()
-            print(
-                f"\n  MEAN  coverage={faithfulness_df['citation_coverage'].mean():.0%} "
-                f"support={faithfulness_df['citation_support'].mean():.0%} "
-                f"invalid_rate={faithfulness_df['invalid_citation_rate'].mean():.0%} "
-                f"mean_sim={faithfulness_df['mean_support'].mean():.2f}"
-            )
-            if faithfulness_df["citation_support"].mean() < 1.0:
-                print(
-                    "  WARNING: some cited passages are weakly related to their claims.\n"
-                    "  Review answers for citations that don't actually support the statement."
-                )
 
     # ── Save results ─────────────────────────────────────────────────────────
     EVAL_PATH.parent.mkdir(parents=True, exist_ok=True)
