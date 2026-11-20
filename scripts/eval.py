@@ -68,8 +68,10 @@ def _keyword_hit(hits, keyword: str, k: int) -> int:
 
 
 def is_abstention(answer: str) -> bool:
-    """Return True if the answer begins with the abstention marker."""
-    return answer.strip().upper().startswith(ABSTENTION_MARKER.upper())
+    """Return True if the reply contains the abstention marker."""
+    from healthcare_rag.generator import is_abstention as _is_abstention
+
+    return _is_abstention(answer)
 
 
 def _corpus_covers(

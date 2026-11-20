@@ -43,8 +43,9 @@ _SYSTEM_PROMPT = (
     "Do not describe the papers one by one, and do not use outside knowledge. "
     "If they disagree, say so in one sentence. "
     "Do not diagnose the reader or give emergency guidance. "
-    "If the passages do not contain enough information to answer, start your response with "
-    f"'{ABSTENTION_MARKER}'. "
+    "If the passages do not contain enough information to answer, your entire response "
+    f"must be exactly '{ABSTENTION_MARKER}' and nothing else. "
+    "Do not explain that refusal, and do not put it in brackets. "
     "Use at most 4 sentences and end the last one completely. "
     "Put citations at the end of the sentence they support, as [1] or [2]."
 )
@@ -105,16 +106,31 @@ def _snippet(text: str, limit: int = 280) -> str:
     return flat[: limit - 1].rstrip() + "…"
 
 
+def is_abstention(answer: str) -> bool:
+    """True when the reply refuses to answer.
+
+    The marker counts wherever it appears. A small model often writes a
+    sentence and then appends the marker, sometimes inside brackets.
+    """
+    return ABSTENTION_MARKER.upper() in (answer or "").upper()
+
+
 def for_visitors(answer: str) -> str:
     """Remove the eval abstention token. A still-arriving token stays hidden."""
-    text = answer.lstrip()
+    text = (answer or "").lstrip()
     marker = ABSTENTION_MARKER
-    if text.upper().startswith(marker.upper()):
-        rest = text[len(marker) :].lstrip()
-        return rest or VISITOR_ABSTAIN
+    if is_abstention(text):
+        return VISITOR_ABSTAIN
     if text and marker.upper().startswith(text.upper()):
         return ""
     return answer
+
+
+def _as_abstention(text: str) -> str:
+    """Replace a mixed refusal with the marker plus the visitor sentence."""
+    if is_abstention(text):
+        return f"{ABSTENTION_MARKER} {VISITOR_ABSTAIN}"
+    return text
 
 
 def _offline_answer(_question: str, hits: List[SearchResult]) -> str:
@@ -217,7 +233,9 @@ def _local_messages(question: str, hits: List[SearchResult]) -> List[Dict[str, s
             "role": "user",
             "content": (
                 "Write one recommendation that answers the question. "
-                "Do not describe each paper separately.\n\n"
+                "Do not describe each paper separately. "
+                "If the passages do not answer the question, reply with only "
+                f"{ABSTENTION_MARKER}\n\n"
                 f"Question:\n{question}\n\nEvidence:\n" + "\n\n".join(blocks)
             ),
         },
@@ -289,6 +307,7 @@ def _stream_local(question: str, hits: List[SearchResult]) -> Iterator[str]:
     full = ""
     shown = 0
     pending = ""
+    yielded = ""
     for chunk in llm.create_chat_completion(
         messages=_local_messages(question, hits),
         max_tokens=220,
@@ -311,18 +330,27 @@ def _stream_local(question: str, hits: List[SearchResult]) -> Iterator[str]:
         shown = len(closed)
         if len(pending) >= 24 or pending.endswith((" ", "\n", ".", ",", "!", "?")):
             produced = True
+            yielded += pending
             yield pending
             pending = ""
-    if pending:
+        if is_abstention(full):
+            break
+    if pending and not is_abstention(full):
         produced = True
+        yielded += pending
         yield pending
+    if is_abstention(full):
+        if not is_abstention(yielded):
+            produced = True
+            yield f" {ABSTENTION_MARKER}"
+        return
     if not produced:
         yield _offline_answer(question, hits)
 
 
 def _local_answer(question: str, hits: List[SearchResult]) -> str:
     """One stateless reply. The weights are not updated and the prompt is not stored."""
-    text = "".join(_stream_local(question, hits)).strip()
+    text = _as_abstention("".join(_stream_local(question, hits)).strip())
     return text or _offline_answer(question, hits)
 
 

@@ -27,7 +27,7 @@ from typing import Callable, List, Optional, Sequence
 import numpy as np
 
 from healthcare_rag.config import EMBEDDING_MODEL_NAME
-from healthcare_rag.generator import ABSTENTION_MARKER
+from healthcare_rag.generator import is_abstention
 from healthcare_rag.retriever import SearchResult
 
 # Cosine threshold above which a cited passage is treated as supporting the
@@ -176,7 +176,7 @@ def check_faithfulness(
     ``threshold``. Abstention answers are returned with ``abstained=True`` and
     no claims to score.
     """
-    abstained = answer.strip().upper().startswith(ABSTENTION_MARKER.upper())
+    abstained = is_abstention(answer)
     n_passages = len(hits)
     sentences = split_sentences(answer)
 

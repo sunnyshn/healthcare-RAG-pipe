@@ -25,9 +25,10 @@ from healthcare_rag.config import INDEX_PATH, PROCESSED_PATH, RAW_PATH
 from healthcare_rag.data_io import normalize_documents, read_jsonl
 from healthcare_rag.faithfulness import check_faithfulness
 from healthcare_rag.generator import (
-    ABSTENTION_MARKER,
+    _as_abstention,
     _passages_to_cite,
     for_visitors,
+    is_abstention,
     local_generator_ready,
     stream_answer,
 )
@@ -723,17 +724,14 @@ def _findings_html(hits) -> str:
 
 
 def _answer_card_html(answer: str, hits=None, streaming: bool = False) -> str:
-    is_abstain = (
-        not streaming
-        and answer.strip().upper().startswith(ABSTENTION_MARKER.upper())
-    )
+    is_abstain = is_abstention(answer)
     cls = "answer-card abstain" if is_abstain else "answer-card"
     visitor = for_visitors(answer)
-    outlined = bool(hits) and visitor.lstrip().startswith("Closest matches.")
-    if streaming and not outlined:
-        heading = "Writing"
-    elif is_abstain:
+    outlined = bool(hits) and not is_abstain and visitor.lstrip().startswith("Closest matches.")
+    if is_abstain:
         heading = "No close match."
+    elif streaming and not outlined:
+        heading = "Writing"
     elif outlined:
         heading = "Closest matches"
     else:
@@ -763,7 +761,11 @@ def stream_answer_into(placeholder, question, hits) -> str:
         placeholder.markdown(_answer_card_html("", hits, streaming=True), unsafe_allow_html=True)
     for chunk in stream_answer(question, hits):
         acc += chunk
-        placeholder.markdown(_answer_card_html(acc, hits, streaming=True), unsafe_allow_html=True)
+        placeholder.markdown(
+            _answer_card_html(acc, hits, streaming=not is_abstention(acc)),
+            unsafe_allow_html=True,
+        )
+    acc = _as_abstention(acc.strip()) if acc.strip() else acc
     placeholder.markdown(_answer_card_html(acc, hits, streaming=False), unsafe_allow_html=True)
     return acc
 
@@ -1289,7 +1291,7 @@ with tab_ask:
                 render_evidence(hits)
                 evidence_shown = True
 
-                is_abstain = answer.strip().upper().startswith(ABSTENTION_MARKER.upper())
+                is_abstain = is_abstention(answer)
                 report = None
                 visible_claims = "" if is_abstain else _visible_claim_text(hits)
                 if visible_claims:

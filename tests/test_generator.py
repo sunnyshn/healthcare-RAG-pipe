@@ -7,8 +7,11 @@ import pytest
 from healthcare_rag.generator import (
     ABSTENTION_MARKER,
     LOW_EVIDENCE_THRESHOLD,
+    _as_abstention,
     _build_context,
+    for_visitors,
     generate_answer,
+    is_abstention,
     stream_answer,
 )
 from healthcare_rag.retriever import SearchResult
@@ -134,13 +137,25 @@ class TestGenerateAnswerOffline:
         assert "Off Topic" not in answer
 
     def test_visitor_view_hides_the_eval_token(self):
-        from healthcare_rag.generator import for_visitors
-
         hits = [_make_hit(score_dense=0.50)]
         shown = for_visitors(generate_answer("off-topic question", hits))
         assert ABSTENTION_MARKER not in shown
         assert "close match" in shown
         assert "won't guess" in shown
+
+    def test_leaked_marker_is_a_no_close_match(self):
+        leaked = (
+            "These articles do not contain relevant information "
+            f"[{ABSTENTION_MARKER}]"
+        )
+        assert is_abstention(leaked) is True
+        shown = for_visitors(leaked)
+        assert ABSTENTION_MARKER not in shown
+        assert "relevant information" not in shown
+        assert "close match" in shown
+        cleaned = _as_abstention(leaked)
+        assert cleaned.upper().startswith(ABSTENTION_MARKER.upper())
+        assert "relevant information" not in cleaned
 
 
 # ── stream_answer ────────────────────────────────────────────────────────────
@@ -162,3 +177,27 @@ class TestStreamAnswerOffline:
         hits = [_make_hit(score_dense=LOW_EVIDENCE_THRESHOLD - 0.1)]
         full = "".join(stream_answer("irrelevant", hits))
         assert full.upper().startswith(ABSTENTION_MARKER.upper())
+
+
+class TestLocalRefusal:
+    def test_mixed_refusal_is_rewritten(self, monkeypatch):
+        monkeypatch.setattr(
+            "healthcare_rag.generator.local_generator_ready", lambda: True
+        )
+
+        class _Fake:
+            def create_chat_completion(self, **_kwargs):
+                text = (
+                    "These articles do not contain relevant information "
+                    f"[{ABSTENTION_MARKER}]"
+                )
+                yield {"choices": [{"delta": {"content": text}}]}
+
+        monkeypatch.setattr("healthcare_rag.generator._local_llm", lambda: _Fake())
+        hits = [_make_hit(score_dense=0.90)]
+        answer = generate_answer("unrelated question", hits)
+        assert answer.upper().startswith(ABSTENTION_MARKER.upper())
+        assert "relevant information" not in answer
+        shown = for_visitors(answer)
+        assert ABSTENTION_MARKER not in shown
+        assert "close match" in shown

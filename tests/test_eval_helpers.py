@@ -76,9 +76,9 @@ class TestIsAbstention:
         answer = "ACE inhibitors are recommended for hypertension [1]."
         assert is_abstention(answer) is False
 
-    def test_marker_in_middle_not_counted(self):
-        answer = f"The model should say {ABSTENTION_MARKER} when unsure."
-        assert is_abstention(answer) is False
+    def test_marker_after_a_sentence_still_counts(self):
+        answer = f"These articles do not contain relevant information [{ABSTENTION_MARKER}]"
+        assert is_abstention(answer) is True
 
     def test_whitespace_stripped(self):
         answer = f"   \n{ABSTENTION_MARKER} explanation"
